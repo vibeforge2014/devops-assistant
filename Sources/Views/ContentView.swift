@@ -4,7 +4,7 @@ import SwiftUI
 /// and a detail pane showing the selected item's actions.
 struct ContentView: View {
     @EnvironmentObject var catalog: ProjectCatalog
-    @State private var selection: SidebarItem?
+    @State private var selection: SidebarItem? = .dashboard
 
     var body: some View {
         NavigationSplitView {
