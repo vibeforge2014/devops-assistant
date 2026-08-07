@@ -38,6 +38,18 @@ struct CredentialEnv {
             env["MATCH_GIT_URL"] = url
         }
 
+        // Apple ID + app-specific password (used by notarytool's Apple-ID auth
+        // and as a fastlane fallback when no ASC API Key is available).
+        if let appleID = KeychainStore.get(.appleID) {
+            env["APPLE_ID"] = appleID
+            env["FASTLANE_APPLE_ID"] = appleID
+        }
+        if let asp = KeychainStore.get(.appSpecificPassword) {
+            env["FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD"] = asp
+            env["NOTARYTOOL_APPLE_ID"] = KeychainStore.get(.appleID) ?? ""
+            env["NOTARYTOOL_PASSWORD"] = asp
+        }
+
         return env
     }
 

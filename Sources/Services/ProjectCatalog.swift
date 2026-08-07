@@ -11,17 +11,23 @@ final class ProjectCatalog: ObservableObject {
         load()
     }
 
-    /// Reload from the bundled resource.
+    /// Reload from the bundled resource. Degrades gracefully to an empty
+    /// catalog if the file is missing or invalid, so a packaging bug never
+    /// crashes the app on launch.
     func load() {
         guard let url = Bundle.main.url(forResource: "projects", withExtension: "json") else {
-            assertionFailure("projects.json not found in bundle")
+            #if DEBUG
+            print("[ProjectCatalog] projects.json not found in bundle — using empty catalog")
+            #endif
             return
         }
         do {
             let raw = try Data(contentsOf: url)
             data = try JSONDecoder().decode(ProjectCatalogData.self, from: raw)
         } catch {
-            assertionFailure("Failed to decode projects.json: \(error)")
+            #if DEBUG
+            print("[ProjectCatalog] Failed to decode projects.json: \(error)")
+            #endif
         }
     }
 

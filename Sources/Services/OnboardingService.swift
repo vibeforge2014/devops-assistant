@@ -151,12 +151,17 @@ struct OnboardingService {
         return missing
     }
 
-    /// Whether the essential credentials are all present.
+    /// Whether the essential credentials are present. Auth works if EITHER an
+    /// ASC API Key (content + id + issuer) OR Apple ID + app-specific password
+    /// is configured. Team ID is always required.
     static var isFullyConfigured: Bool {
-        KeychainStore.exists(.ascAPIKeyContent)
+        guard KeychainStore.exists(.appleTeamID) else { return false }
+        let hasAPIKey = KeychainStore.exists(.ascAPIKeyContent)
             && KeychainStore.exists(.ascAPIKeyID)
             && KeychainStore.exists(.ascIssuerID)
-            && KeychainStore.exists(.appleTeamID)
+        let hasAppleID = KeychainStore.exists(.appleID)
+            && KeychainStore.exists(.appSpecificPassword)
+        return hasAPIKey || hasAppleID
     }
 
     struct ImportSummary {

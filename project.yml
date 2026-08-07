@@ -26,5 +26,5 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: Sources
-    resources:
       - path: Resources
+        buildPhase: resources

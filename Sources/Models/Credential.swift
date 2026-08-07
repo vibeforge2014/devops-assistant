@@ -9,6 +9,8 @@ enum Credential: String, CaseIterable {
     case matchPassword = "match_password"
     case matchGitURL = "match_git_url"
     case appleTeamID = "apple_team_id"
+    case appleID = "apple_id"                       // Apple ID account
+    case appSpecificPassword = "app_specific_password" // app-specific password
 
     /// The keychain account string (prefixed to avoid collisions).
     var account: String { "vibeforge.devops.\(rawValue)" }
@@ -21,6 +23,8 @@ enum Credential: String, CaseIterable {
         case .matchPassword: "Match 仓库密码"
         case .matchGitURL: "Match 仓库地址"
         case .appleTeamID: "Apple Team ID"
+        case .appleID: "Apple ID"
+        case .appSpecificPassword: "App 专用密码"
         }
     }
 }
