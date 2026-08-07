@@ -23,6 +23,11 @@ struct SettingsView: View {
                         credentialRow(.matchPassword, secure: true)
                     }
 
+                    Section("Apple ID 认证") {
+                        credentialRow(.appleID)
+                        credentialRow(.appSpecificPassword, secure: true)
+                    }
+
                     Section("通用") {
                         credentialRow(.appleTeamID)
                     }

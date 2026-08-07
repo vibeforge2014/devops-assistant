@@ -21,9 +21,7 @@ struct ProjectDetail: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
 
-                    if !app.existsOnDisk {
-                        missingPathBanner
-                    }
+                    gitSection
 
                     actionGrid
                 }
@@ -131,19 +129,92 @@ struct ProjectDetail: View {
         }
     }
 
-    private var missingPathBanner: some View {
-        HStack {
+    // MARK: - Git section
+
+    /// Git operations for the project: clone when absent, pull/status when present.
+    private var gitSection: some View {
+        Group {
+            if app.existsOnDisk {
+                HStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("源码仓库").font(.headline)
+                        Text(app.resolvedPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button { Task { await gitPull() } } label: {
+                        Label("拉取最新", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    Button { Task { await gitStatus() } } label: {
+                        Label("状态", systemImage: "info.circle")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+                .background(.background, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+            } else {
+                cloneBanner
+            }
+        }
+    }
+
+    /// Shown when the project path doesn't exist — offers to clone from the
+    /// known GitHub repo. The repo URL is derived from the product id.
+    private var cloneBanner: some View {
+        HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("项目路径不存在").font(.headline)
-                Text(app.resolvedPath).font(.caption).foregroundStyle(.secondary)
+                Text(app.resolvedPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([]) }
-                .buttonStyle(.bordered)
+            Button { Task { await cloneRepo() } } label: {
+                Label("克隆仓库", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
         }
         .padding()
         .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Git commands
+
+    private func gitPull() async {
+        working = true; defer { working = false }
+        await runner.run("git pull --ff-only", cwd: app.resolvedPath)
+        reloadVersion()
+    }
+
+    private func gitStatus() async {
+        working = true; defer { working = false }
+        await runner.run("git status -sb && echo '---' && git log --oneline -5", cwd: app.resolvedPath)
+    }
+
+    private func cloneRepo() async {
+        working = true; defer { working = false }
+        // Map product id → GitHub repo (vibeforge2014/<repo>).
+        let repoMap: [String: String] = [
+            "tivon": "atvtool",
+            "tellyra": "aptv-ios",
+            "serverhub": "ServerCat-iOS",
+            "chargepilot": "chargepilot",
+            "minuteflow": "minuteflow-source",
+            "tunesync": "TuneSync-iOS",
+            "tailtalk": "tailtalk",
+        ]
+        guard let repo = repoMap[app.id] else {
+            runner.log("✗ 未知 \(app.id) 的 GitHub 仓库")
+            return
+        }
+        let parent = (app.resolvedPath as NSString).deletingLastPathComponent
+        let dirName = (app.resolvedPath as NSString).lastPathComponent
+        runner.log("▶ git clone vibeforge2014/\(repo) → \(dirName)")
+        await runner.run("mkdir -p '\(parent)' && git clone git@github.com:vibeforge2014/\(repo).git '\(app.resolvedPath)'")
+        if app.existsOnDisk { reloadVersion() }
     }
 
     // MARK: - Actions (commands)
