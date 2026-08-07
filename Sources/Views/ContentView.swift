@@ -24,12 +24,14 @@ struct ContentView: View {
         case .app(let id):
             if let app = catalog.app(id: id) {
                 ProjectDetail(app: app)
+                    .id(id) // force fresh @State when switching apps
             } else {
                 EmptyDetail()
             }
         case .site(let id):
             if let site = catalog.site(id: id) {
                 SiteDetail(site: site)
+                    .id(id) // force fresh @State when switching sites
             } else {
                 EmptyDetail()
             }

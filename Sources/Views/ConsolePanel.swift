@@ -4,7 +4,10 @@ import SwiftUI
 /// Designed to be embedded at the bottom of any operation view. Renders meta
 /// lines distinctly and auto-scrolls to the newest line.
 struct ConsolePanel: View {
-    @EnvironmentObject var runner: ShellRunner
+    /// The runner whose output this console mirrors. Injected explicitly (not
+    /// via environment) so each project/site owns an isolated console and
+    /// concurrent operations in different views never cross-talk (M1).
+    @ObservedObject var runner: ShellRunner
 
     var body: some View {
         VStack(spacing: 0) {

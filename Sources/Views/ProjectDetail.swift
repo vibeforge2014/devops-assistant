@@ -4,11 +4,14 @@ import SwiftUI
 /// the four release actions (build, sign/notarize, TestFlight, App Store),
 /// each streaming output into an embedded console.
 struct ProjectDetail: View {
-    @EnvironmentObject var runner: ShellRunner
+    /// Each project owns its own runner/console so operations in different
+    /// projects never cross-talk (M1).
+    @StateObject private var runner = ShellRunner()
     let app: AppProject
 
     @State private var version: VersionPair?
     @State private var showVersionEditor = false
+    @State private var showReleaseFlow = false
     @State private var working = false
 
     private var buildService: BuildService { BuildService(runner: runner) }
@@ -29,11 +32,15 @@ struct ProjectDetail: View {
             }
 
             Divider()
-            ConsolePanel()
+            ConsolePanel(runner: runner)
                 .frame(height: 220)
         }
         .navigationTitle(app.name)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("一键发布") { showReleaseFlow = true }
+                    .disabled(working)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button("编辑版本号") { showVersionEditor = true }
                     .disabled(working)
@@ -43,6 +50,9 @@ struct ProjectDetail: View {
             VersionEditSheet(app: app, current: version) { newVersion in
                 version = newVersion
             }
+        }
+        .sheet(isPresented: $showReleaseFlow) {
+            ReleaseFlowView(app: app)
         }
         .onAppear { reloadVersion() }
         .disabled(working)

@@ -3,7 +3,9 @@ import SwiftUI
 /// 单个 GitHub Pages 站点的详情视图。展示仓库信息与本地克隆状态,提供
 /// 「拉取最新」「提交并推送」两个操作,过程输出实时显示在底部控制台。
 struct SiteDetail: View {
-    @EnvironmentObject var runner: ShellRunner
+    /// Each site owns its own runner/console (M1) so concurrent operations in
+    /// different sites never cross-talk.
+    @StateObject private var runner = ShellRunner()
     let site: SiteProject
 
     @State private var commitMessage = ""
@@ -14,6 +16,7 @@ struct SiteDetail: View {
 
     init(site: SiteProject) {
         self.site = site
+        _runner = StateObject(wrappedValue: ShellRunner())
     }
 
     var body: some View {
@@ -35,7 +38,7 @@ struct SiteDetail: View {
             }
 
             Divider()
-            ConsolePanel()
+            ConsolePanel(runner: runner)
                 .frame(height: 200)
         }
         .navigationTitle(site.name)

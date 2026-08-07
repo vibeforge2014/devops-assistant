@@ -3,7 +3,8 @@ import SwiftUI
 /// 批量管理发布页站点视图。可多选站点后统一「提交并推送」,触发各站点的
 /// GitHub Pages 自动部署;过程输出实时显示在底部控制台。
 struct PagesManagerView: View {
-    @EnvironmentObject var runner: ShellRunner
+    /// This manager owns its own runner/console (M1).
+    @StateObject private var runner = ShellRunner()
     @EnvironmentObject var catalog: ProjectCatalog
 
     @State private var selected: Set<String> = []
@@ -26,7 +27,7 @@ struct PagesManagerView: View {
             }
 
             Divider()
-            ConsolePanel()
+            ConsolePanel(runner: runner)
                 .frame(height: 200)
         }
         .navigationTitle("发布页管理")

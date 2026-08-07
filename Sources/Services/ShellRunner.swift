@@ -48,14 +48,17 @@ final class ShellRunner: ObservableObject {
     }
 
     /// Run a command through the shell, streaming output. `env` is merged onto
-    /// the current environment so credentials can be injected per-run.
+    /// the current environment so credentials can be injected per-run. `timeout`
+    /// seconds, when > 0, force-terminates the process and returns a cancelled
+    /// result (M2).
     @discardableResult
     func run(_ command: String,
              cwd: String? = nil,
-             env: [String: String] = [:]) async -> RunResult {
+             env: [String: String] = [:],
+             timeout: TimeInterval = 0) async -> RunResult {
         await runProcess(executableURL: URL(fileURLWithPath: "/bin/zsh"),
                          arguments: ["-l", "-c", command],
-                         cwd: cwd, env: env)
+                         cwd: cwd, env: env, timeout: timeout)
     }
 
     /// Run a command with an argv array directly (no shell interpretation).
@@ -65,10 +68,11 @@ final class ShellRunner: ObservableObject {
     func run(executable: String,
              args: [String],
              cwd: String? = nil,
-             env: [String: String] = [:]) async -> RunResult {
+             env: [String: String] = [:],
+             timeout: TimeInterval = 0) async -> RunResult {
         await runProcess(executableURL: URL(fileURLWithPath: executable),
                          arguments: args,
-                         cwd: cwd, env: env)
+                         cwd: cwd, env: env, timeout: timeout)
     }
 
     // MARK: - Core
@@ -76,7 +80,8 @@ final class ShellRunner: ObservableObject {
     private func runProcess(executableURL: URL,
                             arguments: [String],
                             cwd: String?,
-                            env: [String: String]) async -> RunResult {
+                            env: [String: String],
+                            timeout: TimeInterval) async -> RunResult {
         clear()
         isRunning = true
         didCancel = false
@@ -136,10 +141,29 @@ final class ShellRunner: ObservableObject {
         process = proc
 
         // Await completion without blocking the main thread. terminationHandler
-        // fires on a background queue; we bridge it with a continuation.
+        // fires on a background queue; we bridge it with a continuation. An
+        // optional timeout (M2) terminates the process and resumes the
+        // continuation, so a hung command can't freeze the UI forever.
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            proc.terminationHandler = { _ in
-                cont.resume()
+            var resumed = false
+            let resumeOnce: () -> Void = {
+                if !resumed {
+                    resumed = true
+                    cont.resume()
+                }
+            }
+            proc.terminationHandler = { _ in resumeOnce() }
+            if timeout > 0 {
+                // Deadline timer; if it fires, kill the process and resume.
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    if proc.isRunning {
+                        didCancel = true
+                        lines.append(LogLine(text: "⏱ 超时 \(Int(timeout))s — 终止进程", stream: .meta))
+                        proc.terminate()
+                        resumeOnce()
+                    }
+                }
             }
         }
 
