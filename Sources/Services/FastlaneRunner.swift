@@ -80,7 +80,7 @@ final class FastlaneRunner {
     /// Whether fastlane is installed and available on PATH.
     static var isAvailable: Bool {
         let proc = Process()
-        proc.launchPath = "/bin/zsh"
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
         proc.arguments = ["-l", "-c", "which fastlane"]
         proc.standardOutput = Pipe()
         proc.standardError = Pipe()

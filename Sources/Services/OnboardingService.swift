@@ -31,8 +31,6 @@ struct OnboardingService {
         // Discover API key files first — the first one's id populates the
         // ascAPIKeyID field if nothing is stored yet.
         let keys = discoverAPIKeys()
-        let teamID = probeTeamID()
-        let matchURL = probeMatchURL()
 
         var statuses: [Credential] = []
         statuses.append(.ascAPIKeyContent)

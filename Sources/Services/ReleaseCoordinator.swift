@@ -31,14 +31,18 @@ final class ReleaseCoordinator: ObservableObject {
 
     let runner: ShellRunner
     private let app: AppProject
+    private let catalog: ProjectCatalog
+    private let historyStore: HistoryStore
 
     private var build: BuildService { BuildService(runner: runner) }
     private var fastlane: FastlaneRunner { FastlaneRunner(runner: runner) }
     private var notary: NotaryService { NotaryService(runner: runner) }
 
-    init(app: AppProject, runner: ShellRunner) {
+    init(app: AppProject, runner: ShellRunner, catalog: ProjectCatalog, historyStore: HistoryStore) {
         self.app = app
         self.runner = runner
+        self.catalog = catalog
+        self.historyStore = historyStore
     }
 
     enum StepState: Equatable {
@@ -62,15 +66,17 @@ final class ReleaseCoordinator: ObservableObject {
         }
     }
 
-    /// The steps that apply for the given target.
+    /// The steps that apply for the given target. Every target ends by syncing
+    /// the new version into the portal's product data (a best-effort step that
+    /// never aborts an otherwise-successful release).
     func steps(for target: ReleaseTarget) -> [ReleaseStep] {
         switch target {
         case .testFlight:
-            return [.setVersion, .build, .sign, .uploadBeta]
+            return [.setVersion, .build, .sign, .uploadBeta, .updatePages]
         case .appStore:
-            return [.setVersion, .build, .sign, .uploadRelease]
+            return [.setVersion, .build, .sign, .uploadRelease, .updatePages]
         case .macDistribution:
-            return [.setVersion, .build, .sign, .notarize]
+            return [.setVersion, .build, .sign, .notarize, .updatePages]
         }
     }
 
@@ -80,7 +86,11 @@ final class ReleaseCoordinator: ObservableObject {
     }
 
     /// Run the full pipeline for a target, with a version to bump to
-    /// (optional — if nil, only the build number is bumped).
+    /// (optional — if nil, only the build number is bumped). Stops at the first
+    /// failing step — EXCEPT `.updatePages`, which is best-effort: the release
+    /// proper (build/sign/upload) has already succeeded by then, so a portal
+    /// data hiccup is logged but never turns a successful ship into a failure.
+    /// Every run (success or failure) is appended to history before returning.
     @discardableResult
     func run(target: ReleaseTarget, version: VersionPair?) async -> Bool {
         isRunning = true
@@ -94,6 +104,8 @@ final class ReleaseCoordinator: ObservableObject {
         for step in steps {
             guard !cancellationRequested else {
                 runner.log("✋ 已取消发布流程")
+                recordHistory(target: target, version: version,
+                              success: false, failureStep: "已取消")
                 return false
             }
             stepStates[step] = .running
@@ -119,21 +131,80 @@ final class ReleaseCoordinator: ObservableObject {
             case .uploadRelease:
                 ok = await runUpload(target: .appStore)
             case .updatePages:
-                ok = false // not wired into auto steps yet
+                ok = await runUpdatePages()
             }
 
             if ok {
                 stepStates[step] = .succeeded
                 completedSteps.append(step)
+            } else if step == .updatePages {
+                // Best-effort: the release itself succeeded. Surface the
+                // warning in the console but don't mark the run as failed.
+                runner.log("⚠ \(step.title) 未成功,但发布主体已完成 — 不中断")
+                stepStates[step] = .succeeded
+                completedSteps.append(step)
             } else {
                 stepStates[step] = .failed("步骤失败,已中断")
                 runner.log("✗ \(step.title) 失败 — 发布中断")
+                recordHistory(target: target, version: version,
+                              success: false, failureStep: step.title)
                 return false
             }
         }
 
         runner.log("")
         runner.log("🎉 发布完成!")
+        recordHistory(target: target, version: version,
+                      success: true, failureStep: nil)
+        return true
+    }
+
+    // MARK: - History
+
+    /// Capture this run into the history store, using the version actually on
+    /// disk (which reflects any bump) so the record matches what shipped.
+    private func recordHistory(target: ReleaseTarget,
+                               version: VersionPair?,
+                               success: Bool,
+                               failureStep: String?) {
+        let recorded = version ?? VersionManager.read(app)
+        historyStore.append(ReleaseRecord(
+            appName: app.name,
+            appID: app.id,
+            platform: app.platform,
+            target: target,
+            version: recorded,
+            success: success,
+            failureStep: failureStep
+        ))
+    }
+
+    // MARK: - Pages / portal sync
+
+    /// Push the just-released version into the portal's product data and
+    /// redeploy it. The portal is looked up from the catalog by its `portal`
+    /// id; if absent or its clone missing, we warn and treat as best-effort ok.
+    private func runUpdatePages() async -> Bool {
+        guard let portal = catalog.site(id: "portal") else {
+            runner.log("ℹ 未找到 portal 站点,跳过发布页更新")
+            return false
+        }
+        guard let version = VersionManager.read(app) else {
+            runner.log("ℹ 读不到当前版本,跳过发布页更新")
+            return false
+        }
+        let sync = PortalSync(runner: runner)
+        let updated = await sync.updateVersion(productID: app.id,
+                                               version: version,
+                                               portal: portal)
+        guard updated else { return false }
+
+        // Re-deploy the portal so the new version goes live.
+        if portal.existsOnDisk {
+            let deployer = PagesDeployer(runner: runner)
+            let result = await deployer.deployPortal(portal, message: "chore: bump \(app.name) → \(version.marketing)")
+            return result.succeeded
+        }
         return true
     }
 

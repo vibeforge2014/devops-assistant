@@ -29,7 +29,7 @@ final class NotaryService {
     /// Notarize an artifact (dmg/pkg/zip) and staple the ticket.
     @discardableResult
     func notarize(artifact: String, stapleApp: String? = nil) async -> RunResult {
-        var env = notaryEnv()
+        let env = notaryEnv()
         let stapleArg = stapleApp.map { "'\($0)'" } ?? ""
         runner.log("▶ Apple 公证 — \(artifact)")
         return await runner.run("'\(scriptsDir)/notarize.sh' '\(artifact)' \(stapleArg)", env: env)

@@ -11,10 +11,13 @@ VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本
 
 | 模块 | 能力 |
 |------|------|
+| **仪表盘总览** | 一屏概览所有应用(版本/路径状态)、站点(克隆状态)与最近发布 |
 | **构建打包** | xcodegen 生成工程 + xcodebuild archive,管理版本号/Build 号 |
 | **签名与公证** | iOS:match / cert+sigh;macOS:Developer ID 签名 + notarytool 公证 |
 | **TestFlight / App Store** | 封装 fastlane beta/release lane,注入 ASC API Key |
-| **发布页更新** | 批量 git pull → 编辑 → push,触发 GitHub Pages 自动部署;联动 Portal |
+| **一键发布** | 向导式串联:设版本 → 构建 → 签名 → (公证) → 上传 → 联动更新 Portal |
+| **发布页更新** | 批量 git pull → 编辑 → push,触发 GitHub Pages 自动部署 |
+| **发布历史** | 记录每次发布的版本/目标/结果,按应用筛选追溯(本地存储) |
 
 ## 凭据管理
 
@@ -54,10 +57,12 @@ xcodebuild -project DevOpsAssistant.xcodeproj -scheme DevOpsAssistant -configura
 ```
 Sources/
 ├── App/          # @main 入口 + 菜单
-├── Models/       # Project / Credential / ReleaseStep 数据模型
+├── Models/       # Project / Credential / ReleaseStep / ReleaseRecord 数据模型
 ├── Services/     # ShellRunner / KeychainStore / VersionManager / FastlaneRunner
 │                  BuildService / NotaryService / PagesDeployer / PortalSync
-└── Views/        # Sidebar / ProjectDetail / ConsolePanel / VersionEditor
+│                  ReleaseCoordinator / HistoryStore / OnboardingService
+└── Views/        # Sidebar / ContentView / ProjectDetail / ConsolePanel
+                   DashboardView / HistoryView / VersionEditor / ReleaseFlow
                    Settings / PagesManager / SiteDetail
 Resources/
 ├── projects.json       # 项目矩阵描述符

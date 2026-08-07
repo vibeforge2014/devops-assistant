@@ -46,7 +46,7 @@ struct ConsolePanel: View {
                     .padding(8)
                 }
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.3))
-                .onChange(of: runner.lines.last?.id) { last in
+                .onChange(of: runner.lines.last?.id) { _, last in
                     if let last { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }

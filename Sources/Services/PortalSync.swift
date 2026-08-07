@@ -55,19 +55,22 @@ final class PortalSync {
         let objectEnd = text.index(idRange.upperBound, offsetBy: rest.distance(from: rest.startIndex, to: closeRange.lowerBound))
         let block = text[idRange.upperBound..<objectEnd]
 
-        // Replace an existing `version: "..."` anywhere inside the block …
+        // Replace an existing `version: "..."` anywhere inside the block,
+        // preserving whatever indentation preceded the matched line …
         if let existing = block.range(of: #"\s*version: "[^"]*","#, options: .regularExpression) {
-            let start = block.index(block.startIndex, offsetBy: 0,
-                                    limitedBy: block.startIndex)!
-            let _ = start
-            // Build the replacement, preserving indentation of the found line.
-            let lineStart = block.range(of: #"[\s]*"#, options: .regularExpression,
-                                        range: existing).map { block[$0] } ?? "    "
-            _ = lineStart
-            let updated = block.replacingCharacters(in: existing, with: "version: \"\(versionString)\",")
+            // Capture the leading whitespace of the matched line so the
+            // replacement lines up with sibling keys.
+            let indent = block.range(of: #"\s*"#, options: .regularExpression,
+                                     range: block.startIndex..<existing.upperBound)
+                .map { String(block[$0]) } ?? "    "
+            // existing also consumed that leading whitespace, so we fold it
+            // back into the replacement.
+            let updated = block.replacingCharacters(in: existing,
+                                                    with: "\(indent)version: \"\(versionString)\",")
             text.replaceSubrange(idRange.upperBound..<objectEnd, with: updated)
         } else {
-            // … otherwise inject right after the id line.
+            // … otherwise inject right after the id line, matching the
+            // 4-space indentation used by the surrounding keys in products.ts.
             let insertion = "\n    version: \"\(versionString)\","
             text.insert(contentsOf: insertion, at: idRange.upperBound)
         }

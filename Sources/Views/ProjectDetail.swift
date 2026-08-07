@@ -7,6 +7,8 @@ struct ProjectDetail: View {
     /// Each project owns its own runner/console so operations in different
     /// projects never cross-talk (M1).
     @StateObject private var runner = ShellRunner()
+    @EnvironmentObject var catalog: ProjectCatalog
+    @EnvironmentObject private var historyStore: HistoryStore
     let app: AppProject
 
     @State private var version: VersionPair?
@@ -52,7 +54,7 @@ struct ProjectDetail: View {
             }
         }
         .sheet(isPresented: $showReleaseFlow) {
-            ReleaseFlowView(app: app)
+            ReleaseFlowView(app: app, catalog: catalog, historyStore: historyStore)
         }
         .onAppear { reloadVersion() }
         .disabled(working)

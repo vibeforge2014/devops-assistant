@@ -17,11 +17,16 @@ struct ReleaseFlowView: View {
     @State private var buildNumber = ""
     @State private var showVersionFields = false
 
-    init(app: AppProject) {
+    /// `catalog` & `historyStore` are passed in (rather than read via
+    /// @EnvironmentObject) because the coordinator is built in `init`, before
+    /// the environment is available — and the coordinator must own the same
+    /// `runner` the console binds to, so it can't be rebuilt later.
+    init(app: AppProject, catalog: ProjectCatalog, historyStore: HistoryStore) {
         self.app = app
         let runner = ShellRunner()
         _runner = StateObject(wrappedValue: runner)
-        _coordinator = StateObject(wrappedValue: ReleaseCoordinator(app: app, runner: runner))
+        _coordinator = StateObject(wrappedValue: ReleaseCoordinator(
+            app: app, runner: runner, catalog: catalog, historyStore: historyStore))
     }
 
     private var steps: [ReleaseStep] {
@@ -91,7 +96,7 @@ struct ReleaseFlowView: View {
             }
             .pickerStyle(.segmented)
             .disabled(coordinator.isRunning)
-            .onChange(of: target) { _ in
+            .onChange(of: target) { _, _ in
                 // Reset step state when switching targets.
                 coordinator.resetSteps()
             }
@@ -99,6 +104,10 @@ struct ReleaseFlowView: View {
             Text(steps.map(\.title).joined(separator: " → "))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("设置版本号", isOn: $showVersionFields)
+                .disabled(coordinator.isRunning)
+                .font(.subheadline)
         }
     }
 

@@ -45,6 +45,10 @@ struct Sidebar: View {
             }
 
             Section("工具") {
+                Label("仪表盘", systemImage: "chart.bar.xaxis")
+                    .tag(SidebarItem.dashboard)
+                Label("发布历史", systemImage: "clock.arrow.circlepath")
+                    .tag(SidebarItem.history)
                 Label("版本号管理", systemImage: "number.circle")
                     .tag(SidebarItem.versionEditor)
                 Label("发布页管理", systemImage: "globe.badge.chevron.backward")

@@ -13,7 +13,8 @@ struct ContentView: View {
             if let selection {
                 detailView(for: selection)
             } else {
-                EmptyDetail()
+                // Nothing selected: show the dashboard as the landing view.
+                DashboardView()
             }
         }
     }
@@ -35,6 +36,10 @@ struct ContentView: View {
             } else {
                 EmptyDetail()
             }
+        case .dashboard:
+            DashboardView()
+        case .history:
+            HistoryView()
         case .versionEditor:
             VersionEditorView()
         case .pages:
@@ -49,6 +54,8 @@ struct ContentView: View {
 enum SidebarItem: Hashable {
     case app(String)
     case site(String)
+    case dashboard
+    case history
     case versionEditor
     case pages
     case settings
