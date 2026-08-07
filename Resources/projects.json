@@ -1,0 +1,174 @@
+{
+  "apps": [
+    {
+      "id": "tivon",
+      "name": "Tivon",
+      "path": "~/Desktop/atvtool",
+      "platform": "ios",
+      "scheme": "ATVTool",
+      "bundleId": "com.atvtool.ios",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "fastlane",
+        "betaLane": "beta",
+        "releaseLane": "release",
+        "signing": "match",
+        "notarize": false
+      }
+    },
+    {
+      "id": "tellyra",
+      "name": "Tellyra",
+      "path": "~/Desktop/aptv-ios",
+      "platform": "ios",
+      "scheme": "aptv",
+      "bundleId": "com.aptv.app",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "fastlane",
+        "betaLane": "beta",
+        "releaseLane": "release",
+        "signing": "match",
+        "notarize": false
+      }
+    },
+    {
+      "id": "serverhub",
+      "name": "ServerHub",
+      "path": "~/Desktop/ServerCat-iOS",
+      "platform": "ios",
+      "scheme": "ServerCat",
+      "bundleId": "com.servercat.app",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "fastlane",
+        "betaLane": "beta",
+        "releaseLane": "release",
+        "signing": "sigh",
+        "notarize": false
+      }
+    },
+    {
+      "id": "chargepilot",
+      "name": "ChargePilot",
+      "path": "~/Desktop/aidente",
+      "platform": "macos",
+      "scheme": "Aidente",
+      "bundleId": "com.aidente.app",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "native",
+        "betaLane": null,
+        "releaseLane": null,
+        "signing": "developer-id",
+        "notarize": true
+      }
+    },
+    {
+      "id": "minuteflow",
+      "name": "MinuteFlow",
+      "path": "~/Documents/会议助手/ios/MeetingAssistant",
+      "platform": "ios",
+      "scheme": "MeetingAssistant",
+      "bundleId": "com.zqian.meetingassistant",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "native",
+        "betaLane": null,
+        "releaseLane": null,
+        "signing": "sigh",
+        "notarize": false
+      }
+    },
+    {
+      "id": "tunesync",
+      "name": "TuneSync",
+      "path": "~/Desktop/TuneSync-iOS-Native",
+      "platform": "ios",
+      "scheme": "TuneSync",
+      "bundleId": "qz.TuneSync",
+      "versionSource": "pbxproj",
+      "release": {
+        "engine": "fastlane",
+        "betaLane": "beta",
+        "releaseLane": "release",
+        "signing": "match",
+        "notarize": false
+      }
+    },
+    {
+      "id": "tailtalk",
+      "name": "TailTalk",
+      "path": "~/Desktop/TailTalk/TailTalk",
+      "platform": "ios",
+      "scheme": "TailTalk",
+      "bundleId": "zqian15.TailTalk",
+      "versionSource": "pbxproj",
+      "release": {
+        "engine": "native",
+        "betaLane": null,
+        "releaseLane": null,
+        "signing": "manual",
+        "notarize": false
+      }
+    }
+  ],
+  "sites": [
+    {
+      "id": "tivon-support",
+      "name": "Tivon 发布页",
+      "path": "~/Desktop/atvtool/support-site",
+      "repo": "vibeforge2014/tivon-support",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "tellyra-support",
+      "name": "Tellyra 发布页",
+      "path": "~/Desktop/tellyra-support-site",
+      "repo": "vibeforge2014/tellyra-support",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "serverhub-support",
+      "name": "ServerHub 发布页",
+      "path": "~/Desktop/serverhub-support-site",
+      "repo": "vibeforge2014/serverhub-support",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "tailtalk-site",
+      "name": "TailTalk 发布页",
+      "path": "~/Desktop/TailTalk/TailTalk-site",
+      "repo": "vibeforge2014/tailtalk-site",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "chargepilot-site",
+      "name": "ChargePilot 发布页",
+      "path": "~/Desktop/chargepilot-site",
+      "repo": "vibeforge2014/chargepilot-site",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "meeting-assistant-site",
+      "name": "MinuteFlow 发布页",
+      "path": "~/Desktop/meeting-assistant-site",
+      "repo": "vibeforge2014/meeting-assistant-site",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "tunesync-site",
+      "name": "TuneSync 发布页",
+      "path": "~/Desktop/TuneSync-Site",
+      "repo": "vibeforge2014/TuneSync-Site",
+      "deploy": "git-push-main"
+    },
+    {
+      "id": "portal",
+      "name": "门户 Portal",
+      "path": "~/.zcode/workspace/default/portal",
+      "repo": "vibeforge2014/portal",
+      "deploy": "gh-pages"
+    }
+  ]
+}
