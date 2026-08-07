@@ -25,10 +25,11 @@ struct RunResult {
 /// line to an observable log. Designed to wrap fastlane / xcodebuild / git —
 /// long-running, output-heavy commands the user wants to watch live.
 ///
-/// Output is captured asynchronously via `Pipe` + a dedicated read source per
-/// stream, decoded UTF-8, split on newlines, and appended on the main actor so
-/// SwiftUI can render it incrementally. Commands are cancellable via
-/// `terminate()`.
+/// Concurrency: `run` is `@MainActor` but never blocks the main thread — it
+/// awaits process completion via `terminationHandler` + a continuation, so the
+/// UI stays live while a long command streams. Output arrives via
+/// `readabilityHandler` so it's delivered as produced, not batched at exit.
+/// Commands are cancellable via `terminate()`.
 @MainActor
 final class ShellRunner: ObservableObject {
     @Published private(set) var lines: [LogLine] = []
@@ -46,22 +47,44 @@ final class ShellRunner: ObservableObject {
         lines.removeAll()
     }
 
-    /// Run a command, streaming output. Returns the exit code. `env` is merged
-    /// onto the current environment so credentials can be injected per-run.
+    /// Run a command through the shell, streaming output. `env` is merged onto
+    /// the current environment so credentials can be injected per-run.
     @discardableResult
     func run(_ command: String,
              cwd: String? = nil,
              env: [String: String] = [:]) async -> RunResult {
+        await runProcess(executableURL: URL(fileURLWithPath: "/bin/zsh"),
+                         arguments: ["-l", "-c", command],
+                         cwd: cwd, env: env)
+    }
+
+    /// Run a command with an argv array directly (no shell interpretation).
+    /// Prefer this for anything embedding user-provided strings — it has no
+    /// shell-injection surface (§ M4).
+    @discardableResult
+    func run(executable: String,
+             args: [String],
+             cwd: String? = nil,
+             env: [String: String] = [:]) async -> RunResult {
+        await runProcess(executableURL: URL(fileURLWithPath: executable),
+                         arguments: args,
+                         cwd: cwd, env: env)
+    }
+
+    // MARK: - Core
+
+    private func runProcess(executableURL: URL,
+                            arguments: [String],
+                            cwd: String?,
+                            env: [String: String]) async -> RunResult {
         clear()
         isRunning = true
         didCancel = false
         defer { isRunning = false }
 
         let proc = Process()
-        proc.launchPath = "/bin/zsh"
-        // -c so we get shell features (PATH resolution, && chains, globs).
-        proc.arguments = ["-l", "-c", command]
-
+        proc.executableURL = executableURL
+        proc.arguments = arguments
         if let cwd { proc.currentDirectoryURL = URL(fileURLWithPath: cwd) }
 
         var mergedEnv = ProcessInfo.processInfo.environment
@@ -73,32 +96,64 @@ final class ShellRunner: ObservableObject {
         proc.standardOutput = outPipe
         proc.standardError = errPipe
 
-        // Stream stdout/stderr concurrently, buffering partial lines.
-        let stdoutTask = streamTask(pipe: outPipe, stream: .stdout)
-        let stderrTask = streamTask(pipe: errPipe, stream: .stderr)
+        // Buffer a partial line per pipe; flush on cursor/end.
+        let outBuf = LineBuffer { [weak self] line in
+            Task { @MainActor in self?.lines.append(LogLine(text: line, stream: .stdout)) }
+        }
+        let errBuf = LineBuffer { [weak self] line in
+            Task { @MainActor in self?.lines.append(LogLine(text: line, stream: .stderr)) }
+        }
+
+        // Stream via readabilityHandler (fires as data lands, not only at EOF).
+        outPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                outBuf.flush()
+            } else {
+                outBuf.append(data)
+            }
+        }
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                errBuf.flush()
+            } else {
+                errBuf.append(data)
+            }
+        }
 
         do {
             try proc.run()
         } catch {
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
             lines.append(LogLine(text: "启动失败: \(error.localizedDescription)", stream: .meta))
             return RunResult(exitCode: -1, cancelled: false)
         }
 
         process = proc
 
-        // Wait in the background so the main actor stays responsive; the pipe
-        // read sources keep appending lines until EOF.
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await stdoutTask.value }
-            group.addTask { await stderrTask.value }
-            group.addTask {
-                proc.waitUntilExit()
+        // Await completion without blocking the main thread. terminationHandler
+        // fires on a background queue; we bridge it with a continuation.
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            proc.terminationHandler = { _ in
+                cont.resume()
             }
-            // All three complete; waitUntilExit returns after EOFs drain.
         }
 
-        let code = proc.terminationStatus
-        return RunResult(exitCode: code, cancelled: didCancel)
+        // Process exited: close the read handles so readabilityHandler sees EOF
+        // even if a descendant kept the fd momentarily alive.
+        outPipe.fileHandleForReading.readabilityHandler = nil
+        errPipe.fileHandleForReading.readabilityHandler = nil
+        try? outPipe.fileHandleForReading.close()
+        try? errPipe.fileHandleForReading.close()
+        outBuf.flush()
+        errBuf.flush()
+
+        process = nil
+        return RunResult(exitCode: proc.terminationStatus, cancelled: didCancel)
     }
 
     /// Cancel the running process, if any.
@@ -106,42 +161,45 @@ final class ShellRunner: ObservableObject {
         didCancel = true
         process?.terminate()
     }
+}
 
-    /// Read a pipe to EOF on a background thread, forwarding complete lines to
-    /// the main actor. Lines are split manually because `Pipe` delivers chunks
-    /// that don't respect newlines.
-    private func streamTask(pipe: Pipe, stream: LogLine.Stream) -> Task<Void, Never> {
-        Task.detached(priority: .utility) { [weak self] in
-            var buffer = Data()
-            while true {
-                let chunk = pipe.fileHandleForReading.availableData
-                if chunk.isEmpty { break } // EOF
-                buffer.append(chunk)
-                while let nl = buffer.firstIndex(of: 0x0A) {
-                    let lineData = buffer.prefix(upTo: nl)
-                    buffer = buffer.advanced(by: lineData.count + 1)
-                    if let text = String(data: lineData, encoding: .utf8)?.trimmingCharacters(in: .carriageReturns) {
-                        await self?.appendLine(text, stream: stream)
-                    }
-                }
-            }
-            // Flush any trailing partial line.
-            if !buffer.isEmpty, let text = String(data: buffer, encoding: .utf8) {
-                await self?.appendLine(text, stream: stream)
-            }
+/// Accumulates raw pipe data into whole lines, invoking `onLine` per line and
+/// `onLine` once more for a trailing partial line on flush.
+private final class LineBuffer {
+    private var buffer = Data()
+    private let callback: (String) -> Void
+
+    init(_ callback: @escaping (String) -> Void) {
+        self.callback = callback
+    }
+
+    func append(_ data: Data) {
+        guard !data.isEmpty else { return }
+        buffer.append(data)
+        drain()
+    }
+
+    func flush() {
+        if !buffer.isEmpty, let text = String(data: buffer, encoding: .utf8) {
+            callback(text.trimmingCharacters(in: .newlines))
+            buffer.removeAll()
         }
     }
 
-    @MainActor
-    private func appendLine(_ text: String, stream: LogLine.Stream) {
-        lines.append(LogLine(text: text, stream: stream))
+    private func drain() {
+        while let nl = buffer.firstIndex(of: 0x0A) {
+            let lineData = buffer.prefix(upTo: nl)
+            buffer = buffer.advanced(by: lineData.count + 1)
+            if let text = String(data: lineData, encoding: .utf8) {
+                callback(text.trimmingCharacters(in: .newlines))
+            }
+        }
     }
 }
 
-private extension Data {
-    func index(after i: Data.Index) -> Data.Index { Swift.min(i + 1, count) }
-}
-
-private extension CharacterSet {
-    static var carriageReturns: CharacterSet { CharacterSet(charactersIn: "\r") }
+@MainActor
+private extension ShellRunner {
+    static func appendLine(_ text: String, stream: LogLine.Stream) {
+        // Helper for readability-handler callbacks (kept for symmetry).
+    }
 }

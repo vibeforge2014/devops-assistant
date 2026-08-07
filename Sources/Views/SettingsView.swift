@@ -89,13 +89,19 @@ struct SettingsView: View {
         }
     }
 
-    /// 字段绑定:输入变更时同步写入钥匙串。
+    /// 字段绑定:输入变更时同步写入钥匙串。清空字段会删除钥匙串条目
+    /// (而不是写入空串),避免空值被 `exists` 误判为"已配置"。
     private func binding(for cred: Credential) -> Binding<String> {
         Binding(
             get: { values[cred] ?? "" },
             set: { newValue in
                 values[cred] = newValue
-                _ = KeychainStore.set(newValue, for: cred)
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    _ = KeychainStore.delete(cred)
+                } else {
+                    _ = KeychainStore.set(newValue, for: cred)
+                }
             }
         )
     }

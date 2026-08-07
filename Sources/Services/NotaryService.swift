@@ -50,21 +50,43 @@ final class NotaryService {
         }
     }
 
-    /// Build the notarytool auth env. Prefer a keychain profile; fall back to
-    /// the ASC API key triple from the keychain.
+    /// Build the notarytool auth env from an ASC API key stored in the keychain.
+    /// The .p8 is written to a 0600 temp file inside a private subdirectory and
+    /// removed once the notarization run completes, so the private key is never
+    /// left on disk in world-readable form.
     private func notaryEnv() -> [String: String] {
         var env = CredentialEnv.build()
-        // If an ASC API key is stored, write it to a temp .p8 and point
-        // notarytool at it.
         if let keyID = KeychainStore.get(.ascAPIKeyID),
            let content = KeychainStore.get(.ascAPIKeyContent),
            let issuer = KeychainStore.get(.ascIssuerID) {
-            let tmp = "\(NSTemporaryDirectory())AuthKey_\(keyID).p8"
-            try? content.write(toFile: tmp, atomically: true, encoding: .utf8)
-            env["NOTARYTOOL_KEY"] = tmp
-            env["NOTARYTOOL_KEY_ID"] = keyID
-            env["NOTARYTOOL_ISSUER"] = issuer
+            let dir = NSTemporaryDirectory() + "vibeforge-notary/"
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            let tmp = dir + "AuthKey_\(keyID).p8"
+            do {
+                try content.write(toFile: tmp, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp)
+                env["NOTARYTOOL_KEY"] = tmp
+                env["NOTARYTOOL_KEY_ID"] = keyID
+                env["NOTARYTOOL_ISSUER"] = issuer
+                // Clean up after this run completes (best-effort).
+                Task { @MainActor in
+                    self.pendingCleanup = tmp
+                }
+            } catch {
+                #if DEBUG
+                print("[NotaryService] failed to write ASC key for notarize: \(error)")
+                #endif
+            }
         }
         return env
     }
+
+    /// Called by the release flow after distributed(); removes the temp .p8.
+    func cleanupTempKey() {
+        guard let path = pendingCleanup else { return }
+        try? FileManager.default.removeItem(atPath: path)
+        pendingCleanup = nil
+    }
+
+    private var pendingCleanup: String?
 }

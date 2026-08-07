@@ -54,8 +54,10 @@ struct KeychainStore {
         return status == errSecSuccess || status == errSecItemNotFound
     }
 
-    /// Whether a credential is currently stored.
+    /// Whether a credential is currently stored with a non-empty value.
+    /// An empty string written earlier (a bug) no longer counts as configured.
     static func exists(_ credential: Credential) -> Bool {
-        get(credential) != nil
+        guard let value = get(credential) else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

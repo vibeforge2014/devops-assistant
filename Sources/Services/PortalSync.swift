@@ -19,8 +19,11 @@ final class PortalSync {
         "\(portal.resolvedPath)/src/data/products.ts"
     }
 
-    /// Update the version shown for a product by injecting a `version` field
-    /// (or updating it if present) on that product's object literal.
+    /// Update the version shown for a product by setting a `version` field on
+    /// that product's object literal. Works on the whole object block, so an
+    /// existing `version:` key anywhere between the id line and the closing
+    /// `},` is replaced (never duplicated), and the field is inserted as one of
+    /// the first keys if absent.
     @discardableResult
     func updateVersion(productID: String, version: VersionPair, portal: SiteProject) async -> Bool {
         let path = Self.productsPath(for: portal)
@@ -31,20 +34,42 @@ final class PortalSync {
         guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
 
         let versionString = "\(version.marketing) (\(version.build))"
-        // Replace an existing `version: "..."` line scoped to this id block.
-        // If absent, inject one after the id line for robustness.
-        let idPattern = #"id: "\#(productID)","#
-        if let r = text.range(of: idPattern) {
-            // Remove existing version line within a window after the id.
-            let window = text[r.upperBound...]
-            if let vRange = window.range(of: #"\s*version: "[^"]*",\n"#, options: .regularExpression) {
-                let absolute = r.upperBound..<text.index(r.upperBound, offsetBy: window.distance(from: window.startIndex, to: vRange.upperBound))
-                text.removeSubrange(absolute)
-            }
-            text.insert(contentsOf: "\n    version: \"\(versionString)\",", at: r.upperBound)
-        } else {
+
+        // Locate the object block for this product: from its `id: "<id>",`
+        // line up to the matching `},` (end of object) that is NOT followed by
+        // more fields. We scan forward for the next `},` that appears to close
+        // this object — in products.ts objects are `{ ... },` one per product.
+        guard let idRange = text.range(of: #"id: "\#(productID)","#, options: .regularExpression) else {
             runner.log("✗ products.ts 中未找到产品 \(productID)")
             return false
+        }
+
+        // Find the end of this product's object: the next newline + `},` at
+        // the same indentation (4 spaces → object close).
+        let rest = text[idRange.upperBound...]
+        guard let closeRange = rest.range(of: #"\n\s*\},\n"#, options: .regularExpression,
+                                          range: rest.startIndex..<rest.endIndex) else {
+            runner.log("✗ products.ts 中无法定位 \(productID) 对象块的结尾")
+            return false
+        }
+        let objectEnd = text.index(idRange.upperBound, offsetBy: rest.distance(from: rest.startIndex, to: closeRange.lowerBound))
+        let block = text[idRange.upperBound..<objectEnd]
+
+        // Replace an existing `version: "..."` anywhere inside the block …
+        if let existing = block.range(of: #"\s*version: "[^"]*","#, options: .regularExpression) {
+            let start = block.index(block.startIndex, offsetBy: 0,
+                                    limitedBy: block.startIndex)!
+            let _ = start
+            // Build the replacement, preserving indentation of the found line.
+            let lineStart = block.range(of: #"[\s]*"#, options: .regularExpression,
+                                        range: existing).map { block[$0] } ?? "    "
+            _ = lineStart
+            let updated = block.replacingCharacters(in: existing, with: "version: \"\(versionString)\",")
+            text.replaceSubrange(idRange.upperBound..<objectEnd, with: updated)
+        } else {
+            // … otherwise inject right after the id line.
+            let insertion = "\n    version: \"\(versionString)\","
+            text.insert(contentsOf: insertion, at: idRange.upperBound)
         }
 
         do {

@@ -67,20 +67,27 @@ struct OnboardingService {
         }
     }
 
-    /// Probe the Apple Team ID from the aptv Appfile (it's hardcoded there).
+    /// Probe the Apple Team ID from project Appfiles (hardcoded there in some
+    /// projects). Returns nil when not found — we never guess a Team ID, since
+    /// an incorrect one silently breaks signing everywhere.
     static func probeTeamID() -> String? {
-        let appfile = "\(NSHomeDirectory())/Desktop/aptv-ios/fastlane/Appfile"
-        guard let text = try? String(contentsOfFile: appfile, encoding: .utf8) else { return nil }
-        // Look for team_id("XXXXXX")
-        if let r = text.range(of: #"team_id\("([A-Z0-9]{10})"\)"#, options: .regularExpression) {
-            let match = String(text[r])
-            // Extract the ID between quotes.
-            if let open = match.firstIndex(of: "\""),
-               let close = match.lastIndex(of: "\""), open < close {
-                return String(match[match.index(after: open)..<close])
+        let candidates = [
+            "\(NSHomeDirectory())/Desktop/aptv-ios/fastlane/Appfile",
+            "\(NSHomeDirectory())/Desktop/atvtool/fastlane/Appfile",
+            "\(NSHomeDirectory())/Desktop/ServerCat-iOS/fastlane/Appfile",
+        ]
+        for path in candidates {
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            // team_id("XXXXXXXXXX") or team_id "XXXXXXXXXX"
+            if let r = text.range(of: #"team_id\s*\(\s*"([A-Z0-9]{10})"|team_id\s+"([A-Z0-9]{10})""#, options: .regularExpression) {
+                let match = String(text[r])
+                if let open = match.lastIndex(of: "\""),
+                   let close = match.lastIndex(of: "\""), open < close {
+                    return String(match[match.index(after: open)..<close])
+                }
             }
         }
-        return "LPW4Z3BN69" // known default for this account
+        return nil
     }
 
     /// Probe the match repo URL from project Matchfiles.
