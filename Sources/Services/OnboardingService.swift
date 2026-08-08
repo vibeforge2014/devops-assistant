@@ -18,8 +18,8 @@ struct CredentialStatus {
 ///
 /// Sources probed:
 ///   - ASC API Key (.p8 files in ~/.appstoreconnect/private_keys/)
-///   - Team ID (hardcoded in aptv-ios/fastlane/Appfile)
-///   - Match repo URL (Matchfile git_url across projects)
+///   - Team ID (hardcoded in project Appfiles across all 5 match projects)
+///   - Match repo URL (Matchfile git_url across all 5 match projects)
 ///
 /// Issuer ID and match password are NOT on disk in the clear; those stay
 /// manual until the user enters them.
@@ -73,19 +73,26 @@ struct OnboardingService {
             "\(NSHomeDirectory())/Desktop/aptv-ios/fastlane/Appfile",
             "\(NSHomeDirectory())/Desktop/atvtool/fastlane/Appfile",
             "\(NSHomeDirectory())/Desktop/ServerCat-iOS/fastlane/Appfile",
+            "\(NSHomeDirectory())/Desktop/TuneSync-iOS-Native/fastlane/Appfile",
+            "\(NSHomeDirectory())/Desktop/TailTalk/TailTalk/fastlane/Appfile",
         ]
         for path in candidates {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             // team_id("XXXXXXXXXX") or team_id "XXXXXXXXXX"
-            if let r = text.range(of: #"team_id\s*\(\s*"([A-Z0-9]{10})"|team_id\s+"([A-Z0-9]{10})""#, options: .regularExpression) {
-                let match = String(text[r])
-                if let open = match.lastIndex(of: "\""),
-                   let close = match.lastIndex(of: "\""), open < close {
-                    return String(match[match.index(after: open)..<close])
-                }
-            }
+            if let teamID = extractTeamID(from: text) { return teamID }
         }
         return nil
+    }
+
+    /// Parse both `team_id("XXXXXXXXXX")` and `team_id "XXXXXXXXXX"`.
+    static func extractTeamID(from text: String) -> String? {
+        let pattern = #"team_id\s*(?:\(\s*)?"([A-Z0-9]{10})""#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text,
+                                           range: NSRange(text.startIndex..<text.endIndex, in: text)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
     }
 
     /// Probe the match repo URL from project Matchfiles.
@@ -94,6 +101,8 @@ struct OnboardingService {
             "\(NSHomeDirectory())/Desktop/aptv-ios/fastlane/Matchfile",
             "\(NSHomeDirectory())/Desktop/atvtool/fastlane/Matchfile",
             "\(NSHomeDirectory())/Desktop/ServerCat-iOS/fastlane/Matchfile",
+            "\(NSHomeDirectory())/Desktop/TuneSync-iOS-Native/fastlane/Matchfile",
+            "\(NSHomeDirectory())/Desktop/TailTalk/TailTalk/fastlane/Matchfile",
         ]
         for path in candidates {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
