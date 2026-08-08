@@ -12,7 +12,9 @@
         "engine": "fastlane",
         "betaLane": "beta",
         "releaseLane": "release",
+        "signingLane": null,
         "signing": "match",
+        "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
     },
@@ -28,7 +30,9 @@
         "engine": "fastlane",
         "betaLane": "beta",
         "releaseLane": "release",
+        "signingLane": "certs",
         "signing": "match",
+        "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
     },
@@ -44,7 +48,9 @@
         "engine": "fastlane",
         "betaLane": "beta",
         "releaseLane": "release",
-        "signing": "sigh",
+        "signingLane": "fetch_signing",
+        "signing": "match",
+        "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
     },
@@ -60,6 +66,7 @@
         "engine": "native",
         "betaLane": null,
         "releaseLane": null,
+        "signingLane": null,
         "signing": "developer-id",
         "notarize": true
       }
@@ -76,6 +83,7 @@
         "engine": "native",
         "betaLane": null,
         "releaseLane": null,
+        "signingLane": null,
         "signing": "sigh",
         "notarize": false
       }
@@ -92,7 +100,9 @@
         "engine": "fastlane",
         "betaLane": "beta",
         "releaseLane": "release",
+        "signingLane": "certs",
         "signing": "match",
+        "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
     },
@@ -105,10 +115,12 @@
       "bundleId": "zqian15.TailTalk",
       "versionSource": "pbxproj",
       "release": {
-        "engine": "native",
-        "betaLane": null,
-        "releaseLane": null,
-        "signing": "manual",
+        "engine": "fastlane",
+        "betaLane": "beta",
+        "releaseLane": "release",
+        "signingLane": "certs",
+        "signing": "match",
+        "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
     }
