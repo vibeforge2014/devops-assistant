@@ -4,6 +4,7 @@ import SwiftUI
 struct DevOpsAssistantApp: App {
     @StateObject private var catalog = ProjectCatalog()
     @StateObject private var historyStore = HistoryStore()
+    @StateObject private var registry = ConsoleRegistry()
     @State private var showOnboarding = false
 
     var body: some Scene {
@@ -11,6 +12,7 @@ struct DevOpsAssistantApp: App {
             ContentView()
                 .environmentObject(catalog)
                 .environmentObject(historyStore)
+                .environmentObject(registry)
                 .frame(minWidth: 980, minHeight: 620)
                 .sheet(isPresented: $showOnboarding) {
                     OnboardingView()

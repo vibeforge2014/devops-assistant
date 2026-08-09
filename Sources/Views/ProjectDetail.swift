@@ -4,12 +4,17 @@ import SwiftUI
 /// the four release actions (build, sign/notarize, TestFlight, App Store),
 /// each streaming output into an embedded console.
 struct ProjectDetail: View {
-    /// Each project owns its own runner/console so operations in different
-    /// projects never cross-talk (M1).
-    @StateObject private var runner = ShellRunner()
+    /// The runner is owned by `ConsoleRegistry` (injected), not as a
+    /// `@StateObject` here. Lifting ownership out of the view means switching
+    /// apps in the sidebar (which `ContentView` rebuilds via `.id(id)`) no
+    /// longer destroys the runner — so live console logs survive the switch
+    /// and a running build keeps streaming instead of being orphaned.
+    @EnvironmentObject private var registry: ConsoleRegistry
     @EnvironmentObject var catalog: ProjectCatalog
     @EnvironmentObject private var historyStore: HistoryStore
     let app: AppProject
+
+    private var runner: ShellRunner { registry.runnerForApp(app.id) }
 
     @State private var version: VersionPair?
     @State private var showVersionEditor = false
@@ -41,11 +46,11 @@ struct ProjectDetail: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("一键发布") { showReleaseFlow = true }
-                    .disabled(working)
+                    .disabled(working || runner.isRunning)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("编辑版本号") { showVersionEditor = true }
-                    .disabled(working)
+                    .disabled(working || runner.isRunning)
             }
         }
         .sheet(isPresented: $showVersionEditor) {
@@ -57,7 +62,7 @@ struct ProjectDetail: View {
             ReleaseFlowView(app: app, catalog: catalog, historyStore: historyStore)
         }
         .onAppear { reloadVersion() }
-        .disabled(working)
+        .disabled(working || runner.isRunning)
     }
 
     // MARK: - Header
@@ -120,8 +125,8 @@ struct ProjectDetail: View {
                 Task { await sign() }
             }
             ActionCard(title: "上传 TestFlight", icon: "paperplane",
-                       subtitle: app.release.engine == .fastlane ? "fastlane \(app.release.betaLane ?? "beta")" : "需先生成 lane",
-                       enabled: app.release.engine == .fastlane) {
+                       subtitle: localUploadLabel,
+                       enabled: ReleaseTarget.available(for: app).contains(.testFlight)) {
                 Task { await uploadBeta() }
             }
             ActionCard(title: "上传 App Store", icon: "shippingbox",
@@ -129,6 +134,26 @@ struct ProjectDetail: View {
                        enabled: app.release.engine == .fastlane) {
                 Task { await uploadRelease() }
             }
+            if app.platform == .ios {
+                ActionCard(title: "打包 IPA", icon: "shippingbox.fill",
+                           subtitle: "本地 xcodebuild -exportArchive") {
+                    Task { await packageIPA() }
+                }
+            }
+            if app.platform == .macos {
+                ActionCard(title: "打包 DMG", icon: "externaldrive.fill",
+                           subtitle: "本地签名 + hdiutil") {
+                    Task { await packageDMG() }
+                }
+            }
+        }
+    }
+
+    private var localUploadLabel: String {
+        switch LocalTestFlightService(runner: runner).method(for: app) {
+        case .script(let path, _): "本地脚本 · \((path as NSString).lastPathComponent)"
+        case .fastlane(let lane): "本地 Fastlane · \(lane)"
+        case .builtIn: "内置 IPA + altool"
         }
     }
 
@@ -233,28 +258,63 @@ struct ProjectDetail: View {
 
     private func build() async {
         working = true; defer { working = false }
-        await buildService.generateXcodeProject(at: app.resolvedPath)
+        runner.clear()
+        let generated = await buildService.generateXcodeProject(at: app.resolvedPath)
+        guard generated.succeeded else { return }
         await buildService.archive(app: app, to: buildService.archivePath(for: app))
     }
 
     private func sign() async {
         working = true; defer { working = false }
+        runner.clear()
         if app.release.notarize {
             let bundle = "\(buildService.archivePath(for: app))/Products/Applications/\(app.scheme).app"
-            await notary.signAppBundle(at: bundle)
-        } else if app.release.engine == .fastlane {
-            await fastlane.runLane(app.release.betaLane == "beta" ? "certs" : "certs", app: app)
+            await notary.distribute(app: app, appBundle: bundle)
+        } else if let lane = app.release.signingLane {
+            await fastlane.runLane(lane, app: app)
+        } else {
+            runner.log("ℹ 该项目没有独立签名步骤;签名由上传 lane 或项目配置处理")
         }
     }
 
     private func uploadBeta() async {
         working = true; defer { working = false }
-        await fastlane.runLane(app.release.betaLane ?? "beta", app: app)
+        runner.clear()
+        guard uploadPreflightPassed(for: .testFlight) else { return }
+        await LocalTestFlightService(runner: runner).upload(app: app)
     }
 
     private func uploadRelease() async {
         working = true; defer { working = false }
+        runner.clear()
+        guard uploadPreflightPassed(for: .appStore) else { return }
         await fastlane.runLane(app.release.releaseLane ?? "release", app: app)
+    }
+
+    private func packageIPA() async {
+        working = true; defer { working = false }
+        runner.clear()
+        _ = await ArtifactPackagingService(runner: runner).packageIPA(app: app)
+    }
+
+    private func packageDMG() async {
+        working = true; defer { working = false }
+        runner.clear()
+        _ = await ArtifactPackagingService(runner: runner).packageDMG(app: app)
+    }
+
+    /// Detail-page shortcuts used to bypass the release wizard's preflight.
+    /// Fail fast here as well so missing credentials/dependencies don't turn
+    /// into a long build followed by a cryptic fastlane error.
+    private func uploadPreflightPassed(for target: ReleaseTarget) -> Bool {
+        let failed = ReleasePreflight.run(app: app, target: target, catalog: catalog.data)
+            .filter { $0.status == .failed }
+        guard !failed.isEmpty else { return true }
+        runner.log("✗ 发布预检未通过,未启动 Fastlane")
+        for check in failed {
+            runner.log("• \(check.title): \(check.detail)")
+        }
+        return false
     }
 
     // MARK: - Helpers

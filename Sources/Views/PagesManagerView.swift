@@ -3,8 +3,9 @@ import SwiftUI
 /// 批量管理发布页站点视图。可多选站点后统一「提交并推送」,触发各站点的
 /// GitHub Pages 自动部署;过程输出实时显示在底部控制台。
 struct PagesManagerView: View {
-    /// This manager owns its own runner/console (M1).
-    @StateObject private var runner = ShellRunner()
+    /// The runner is owned by `ConsoleRegistry` (injected), not as a
+    /// `@StateObject` here, so it survives view rebuilds.
+    @EnvironmentObject private var registry: ConsoleRegistry
     @EnvironmentObject var catalog: ProjectCatalog
 
     @State private var selected: Set<String> = []
@@ -12,6 +13,7 @@ struct PagesManagerView: View {
     @State private var commitMessage = "更新发布页"
     @State private var showCommitDialog = false
 
+    private var runner: ShellRunner { registry.runnerForPages() }
     private var deployer: PagesDeployer { PagesDeployer(runner: runner) }
 
     var body: some View {
@@ -34,7 +36,7 @@ struct PagesManagerView: View {
         .sheet(isPresented: $showCommitDialog) {
             commitDialog
         }
-        .disabled(working)
+        .disabled(working || runner.isRunning)
     }
 
     // MARK: - Notice
@@ -184,9 +186,13 @@ struct PagesManagerView: View {
 
     private func deployAll(message: String) async {
         working = true; defer { working = false }
+        runner.clear()
         let targets = catalog.availableSites.filter { selected.contains($0.id) }
         for site in targets {
-            _ = await deployer.commitAndPush(site, message: message)
+            let result = await deployer.deploy(site, message: message)
+            if !result.succeeded {
+                runner.log("✗ \(site.name) 部署失败,继续处理其余站点")
+            }
         }
     }
 }

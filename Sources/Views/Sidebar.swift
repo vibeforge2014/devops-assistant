@@ -4,6 +4,7 @@ import SwiftUI
 /// for cross-project utilities (version editor, pages manager, settings).
 struct Sidebar: View {
     @EnvironmentObject var catalog: ProjectCatalog
+    @EnvironmentObject private var registry: ConsoleRegistry
     @Binding var selection: SidebarItem?
 
     var body: some View {
@@ -13,6 +14,14 @@ struct Sidebar: View {
                     Label {
                         HStack {
                             Text(app.name)
+                            if registry.isAppRunning(app.id) {
+                                // Live "this app is executing" indicator — a
+                                // build/deploy keeps running in the background
+                                // after switching away, so surface it here.
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .help("正在执行")
+                            }
                             if !app.existsOnDisk {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.orange)
@@ -31,6 +40,11 @@ struct Sidebar: View {
                     Label {
                         HStack {
                             Text(site.name)
+                            if registry.isSiteRunning(site.id) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .help("正在执行")
+                            }
                             if !site.existsOnDisk {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.orange)

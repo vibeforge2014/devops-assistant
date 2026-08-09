@@ -3,21 +3,19 @@ import SwiftUI
 /// 单个 GitHub Pages 站点的详情视图。展示仓库信息与本地克隆状态,提供
 /// 「拉取最新」「提交并推送」两个操作,过程输出实时显示在底部控制台。
 struct SiteDetail: View {
-    /// Each site owns its own runner/console (M1) so concurrent operations in
-    /// different sites never cross-talk.
-    @StateObject private var runner = ShellRunner()
+    /// The runner is owned by `ConsoleRegistry` (injected), not as a
+    /// `@StateObject` here, so switching sites in the sidebar no longer
+    /// destroys the runner — console logs survive and a running deploy keeps
+    /// streaming instead of being orphaned.
+    @EnvironmentObject private var registry: ConsoleRegistry
     let site: SiteProject
 
     @State private var commitMessage = ""
     @State private var showCommitDialog = false
     @State private var working = false
 
+    private var runner: ShellRunner { registry.runnerForSite(site.id) }
     private var deployer: PagesDeployer { PagesDeployer(runner: runner) }
-
-    init(site: SiteProject) {
-        self.site = site
-        _runner = StateObject(wrappedValue: ShellRunner())
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,7 +43,7 @@ struct SiteDetail: View {
         .sheet(isPresented: $showCommitDialog) {
             commitDialog
         }
-        .disabled(working)
+        .disabled(working || runner.isRunning)
     }
 
     // MARK: - Header
@@ -190,12 +188,14 @@ struct SiteDetail: View {
 
     private func pull() async {
         working = true; defer { working = false }
+        runner.clear()
         await deployer.pull(site)
     }
 
     private func commitAndPush(message: String) async {
         working = true; defer { working = false }
-        await deployer.commitAndPush(site, message: message)
+        runner.clear()
+        await deployer.deploy(site, message: message)
     }
 
     /// Clone the site repo into its configured local path. The parent directory
