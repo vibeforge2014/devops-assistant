@@ -16,6 +16,7 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     GENERATE_INFOPLIST_FILE: YES
     INFOPLIST_KEY_LSUIElement: NO
+    INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
     INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 VibeForge"
     PRODUCT_NAME: DevOps Assistant
 
@@ -42,6 +43,8 @@ targets:
       - path: Sources/Services/KeychainStore.swift
       - path: Sources/Services/ShellRunner.swift
       - path: Sources/Services/PortalSync.swift
+      - path: Sources/Services/ProjectCatalog.swift
+      - path: Sources/Services/GitRemoteService.swift
     settings:
       base:
         PRODUCT_NAME: DevOpsAssistantTests

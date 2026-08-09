@@ -67,6 +67,8 @@ struct Sidebar: View {
                     .tag(SidebarItem.versionEditor)
                 Label("发布页管理", systemImage: "globe.badge.chevron.backward")
                     .tag(SidebarItem.pages)
+                Label("项目管理", systemImage: "folder.badge.gearshape")
+                    .tag(SidebarItem.projectManager)
                 Label("凭据设置", systemImage: "key.fill")
                     .tag(SidebarItem.settings)
             }

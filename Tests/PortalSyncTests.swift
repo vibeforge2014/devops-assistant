@@ -20,7 +20,8 @@ final class PortalSyncTests: XCTestCase {
         let url = dataDir.appendingPathComponent("products.ts")
         try products.write(to: url, atomically: true, encoding: .utf8)
         let site = SiteProject(id: "portal", name: "Portal", path: root.path,
-                               repo: "example/portal", deploy: .ghPages)
+                               repositoryURL: "https://github.com/example/portal.git",
+                               deploy: .ghPages)
 
         let result = await PortalSync(runner: ShellRunner()).updateVersion(
             productID: "fixture",

@@ -142,7 +142,7 @@ struct DashboardView: View {
                             .help("本地克隆不存在")
                     }
                 }
-                Text(site.repo)
+                Text(site.repositoryURL)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)

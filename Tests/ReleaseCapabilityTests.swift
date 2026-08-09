@@ -26,6 +26,7 @@ final class ReleaseCapabilityTests: XCTestCase {
 
     private func makeApp(platform: AppPlatform, release: ReleaseConfig) -> AppProject {
         AppProject(id: "fixture", name: "Fixture", path: "/tmp/fixture",
+                   repositoryURL: "https://github.com/example/fixture.git",
                    platform: platform, scheme: "Fixture", bundleId: "test.fixture",
                    versionSource: .projectYml, release: release)
     }

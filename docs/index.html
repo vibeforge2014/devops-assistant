@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="DevOps Assistant — 为独立 Apple 开发者打造的本地发布控制台。">
+  <title>DevOps Assistant — Ship from your Mac</title>
+  <style>
+    :root { color-scheme: dark; --bg:#080b12; --panel:#111722; --line:#273142; --text:#f4f7fb; --muted:#9ca9ba; --blue:#65a5ff; --green:#5ee0a0; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--text); background:radial-gradient(circle at 20% -10%,#18345d 0,transparent 38%),radial-gradient(circle at 90% 20%,#1b2448 0,transparent 32%),var(--bg); font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC",sans-serif; }
+    a { color:inherit; }
+    .wrap { width:min(1120px,calc(100% - 40px)); margin:auto; }
+    nav { height:72px; display:flex; align-items:center; justify-content:space-between; }
+    .brand { display:flex; gap:11px; align-items:center; font-weight:700; letter-spacing:-.02em; }
+    .mark { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; background:linear-gradient(145deg,#74b8ff,#6769ed); box-shadow:0 8px 28px #467cff50; }
+    .github { color:var(--muted); text-decoration:none; font-size:14px; }
+    .github:hover { color:white; }
+    .hero { padding:110px 0 90px; text-align:center; }
+    .eyebrow { display:inline-flex; gap:8px; align-items:center; padding:6px 12px; border:1px solid #34415a; border-radius:999px; color:#c6d7ee; background:#111827aa; font-size:13px; }
+    .dot { width:7px; height:7px; background:var(--green); border-radius:50%; box-shadow:0 0 12px var(--green); }
+    h1 { max-width:850px; margin:26px auto 20px; font-size:clamp(48px,8vw,88px); line-height:.98; letter-spacing:-.065em; }
+    h1 span { background:linear-gradient(90deg,#fff 15%,#8dc2ff 62%,#9b9cff); -webkit-background-clip:text; color:transparent; }
+    .lead { max-width:680px; margin:0 auto; color:var(--muted); font-size:clamp(18px,2vw,22px); }
+    .actions { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin:34px 0 18px; }
+    .button { display:inline-flex; align-items:center; gap:9px; min-height:50px; padding:0 22px; border-radius:13px; text-decoration:none; font-weight:650; transition:.18s ease; }
+    .button:hover { transform:translateY(-2px); }
+    .primary { background:#f5f8ff; color:#0b1019; box-shadow:0 12px 40px #6da4ff35; }
+    .secondary { border:1px solid #34415a; background:#121925bb; }
+    .meta { color:#77869a; font-size:13px; }
+    .window { margin:20px auto 90px; max-width:940px; border:1px solid #364156; border-radius:19px; overflow:hidden; background:#0b1018; box-shadow:0 40px 100px #0009; text-align:left; }
+    .titlebar { height:48px; display:flex; align-items:center; gap:7px; padding:0 16px; background:#151b25; border-bottom:1px solid #293141; }
+    .light { width:11px; height:11px; border-radius:50%; background:#ff6259; }.light:nth-child(2){background:#ffbd2e}.light:nth-child(3){background:#28c941}
+    .app { display:grid; grid-template-columns:210px 1fr; min-height:390px; }
+    .side { padding:18px 12px; border-right:1px solid #242d3c; background:#0d131d; }
+    .side b { display:block; padding:7px 10px; color:#7e8ba0; font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+    .item { padding:8px 10px; margin:2px 0; border-radius:7px; color:#aeb8c8; font-size:13px; }.item.active{color:white;background:#27344a}.item i{color:var(--green);font-style:normal;float:right}
+    .content { padding:32px; }
+    .content h2 { margin:0 0 4px; font-size:25px; }.content>p{margin:0;color:var(--muted);font-size:14px}
+    .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:25px; }
+    .card { min-height:110px; padding:16px; border:1px solid #263145; border-radius:12px; background:linear-gradient(145deg,#151d2a,#101620); }
+    .card strong { display:block; margin-bottom:18px; font-size:13px; }.card span{font-size:24px;font-weight:750}.card small{display:block;color:var(--muted)}
+    .console { margin-top:14px; padding:15px; border:1px solid #263145; border-radius:12px; background:#080d14; color:#91a1b6; font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .console em { color:var(--green); font-style:normal; }
+    .features { padding:40px 0 110px; }
+    .features h2 { font-size:38px; letter-spacing:-.04em; margin-bottom:28px; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+    .feature { padding:24px; border:1px solid var(--line); border-radius:16px; background:#101620b8; }
+    .feature .icon { font-size:22px; }.feature h3{margin:16px 0 5px;font-size:17px}.feature p{margin:0;color:var(--muted);font-size:14px}
+    .install { display:grid; grid-template-columns:1fr 1fr; gap:30px; align-items:center; margin-bottom:100px; padding:34px; border:1px solid #34425a; border-radius:20px; background:linear-gradient(135deg,#15233a,#111520); }
+    .install h2{margin:0 0 6px;font-size:30px}.install p{margin:0;color:var(--muted)}.steps{margin:0;padding-left:22px;color:#cbd4df}.steps li{padding:4px 0}
+    footer { display:flex; justify-content:space-between; gap:20px; padding:28px 0 36px; border-top:1px solid #222b39; color:#748195; font-size:13px; }
+    @media(max-width:760px){.hero{padding-top:70px}.app{grid-template-columns:1fr}.side{display:none}.cards,.grid{grid-template-columns:1fr}.install{grid-template-columns:1fr}.window{margin-bottom:55px}.content{padding:22px}footer{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav><div class="brand"><span class="mark">⌘</span>DevOps Assistant</div><a class="github" href="https://github.com/vibeforge2014/devops-assistant">GitHub ↗</a></nav>
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span class="dot"></span>v1.2.0 · 已通过 Apple 公证</div>
+        <h1>把发布流程，<br><span>收进一台 Mac。</span></h1>
+        <p class="lead">为独立 Apple 开发者打造的本地发布控制台。构建、签名、公证、TestFlight、Pages 与项目管理，一处完成。</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/vibeforge2014/devops-assistant/releases/download/v1.2.0/DevOps-Assistant-1.2.0.dmg">↓ 下载 macOS 安装包</a>
+          <a class="button secondary" href="https://github.com/vibeforge2014/devops-assistant">查看源码</a>
+        </div>
+        <div class="meta">macOS 14+ · Apple Silicon 与 Intel · Developer ID 签名及 Apple 公证</div>
+      </section>
+
+      <section class="window" aria-label="DevOps Assistant interface preview">
+        <div class="titlebar"><span class="light"></span><span class="light"></span><span class="light"></span></div>
+        <div class="app">
+          <div class="side"><b>应用</b><div class="item active">Tivon <i>●</i></div><div class="item">Tellyra</div><div class="item">ServerHub</div><b>工具</b><div class="item">仪表盘</div><div class="item">发布历史</div><div class="item">项目管理</div></div>
+          <div class="content"><h2>发布控制台</h2><p>所有项目、版本与发布状态，一屏掌握。</p><div class="cards"><div class="card"><strong>应用</strong><span>7</span><small>全部已连接</small></div><div class="card"><strong>站点</strong><span>8</span><small>GitHub Pages</small></div><div class="card"><strong>当前版本</strong><span>1.2</span><small>Release</small></div></div><div class="console">▶ 生成 Xcode 工程<br>▶ Developer ID 签名<br>▶ 提交 Apple 公证<br><em>✓ 发布准备完成</em></div></div>
+        </div>
+      </section>
+
+      <section class="features"><h2>专注交付，不再拼接脚本。</h2><div class="grid">
+        <article class="feature"><div class="icon">🚀</div><h3>一键发布</h3><p>串联版本、构建、签名、公证、上传与发布页更新，并在失败处安全停止。</p></article>
+        <article class="feature"><div class="icon">⌘</div><h3>完全本地</h3><p>发布命令在你的 Mac 上运行，实时输出日志，凭据只存入系统钥匙串。</p></article>
+        <article class="feature"><div class="icon">◫</div><h3>动态项目目录</h3><p>自由新增应用和站点，切换本地路径与 GitHub 仓库，自动同步 origin。</p></article>
+        <article class="feature"><div class="icon">✓</div><h3>发布前检查</h3><p>提前验证版本、证书、依赖、Git 状态与上传凭据，减少临门一脚的失败。</p></article>
+        <article class="feature"><div class="icon">◌</div><h3>Apple 全链路</h3><p>覆盖 TestFlight、App Store、Developer ID 签名和 macOS notarization。</p></article>
+        <article class="feature"><div class="icon">↗</div><h3>Pages 联动</h3><p>管理多个 GitHub Pages 站点，提交、推送并同步产品版本信息。</p></article>
+      </div></section>
+
+      <section class="install"><div><h2>三步开始</h2><p>下载的是通用架构、已签名并通过 Apple 公证的 DMG。</p></div><ol class="steps"><li>打开下载的 DMG</li><li>将 DevOps Assistant 拖入“应用程序”</li><li>启动并配置本机发布凭据</li></ol></section>
+    </main>
+    <footer><span>© 2026 VibeForge</span><span>SHA-256: <code>9e95adb553038d6adec12c5a8ea67b696b3a757d8c64470338004bd94b1839b0</code></span></footer>
+  </div>
+</body>
+</html>

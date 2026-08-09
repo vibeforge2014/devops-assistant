@@ -75,6 +75,7 @@ final class VersionManagerTests: XCTestCase {
 
     private func makeApp(source: VersionSource) -> AppProject {
         AppProject(id: "fixture", name: "Fixture", path: root.path,
+                   repositoryURL: "https://github.com/example/fixture.git",
                    platform: .ios, scheme: "Fixture", bundleId: "test.fixture",
                    versionSource: source,
                    release: ReleaseConfig(engine: .native, signing: .manual))

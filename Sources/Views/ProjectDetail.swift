@@ -200,7 +200,7 @@ struct ProjectDetail: View {
     }
 
     /// Shown when the project path doesn't exist — offers to clone from the
-    /// known GitHub repo. The repo URL is derived from the product id.
+    /// repository URL stored in the editable catalog.
     private var cloneBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -233,24 +233,19 @@ struct ProjectDetail: View {
 
     private func cloneRepo() async {
         working = true; defer { working = false }
-        // Map product id → GitHub repo (vibeforge2014/<repo>).
-        let repoMap: [String: String] = [
-            "tivon": "atvtool",
-            "tellyra": "aptv-ios",
-            "serverhub": "ServerCat-iOS",
-            "chargepilot": "chargepilot",
-            "minuteflow": "minuteflow-source",
-            "tunesync": "TuneSync-iOS",
-            "tailtalk": "tailtalk",
-        ]
-        guard let repo = repoMap[app.id] else {
-            runner.log("✗ 未知 \(app.id) 的 GitHub 仓库")
-            return
-        }
         let parent = (app.resolvedPath as NSString).deletingLastPathComponent
         let dirName = (app.resolvedPath as NSString).lastPathComponent
-        runner.log("▶ git clone vibeforge2014/\(repo) → \(dirName)")
-        await runner.run("mkdir -p '\(parent)' && git clone git@github.com:vibeforge2014/\(repo).git '\(app.resolvedPath)'")
+        do {
+            try FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: parent), withIntermediateDirectories: true)
+        } catch {
+            runner.log("✗ 无法创建父目录：\(error.localizedDescription)")
+            return
+        }
+        runner.log("▶ git clone \(app.repositoryURL) → \(dirName)")
+        _ = await runner.run(executable: "/usr/bin/git",
+                             args: ["clone", app.repositoryURL, app.resolvedPath],
+                             timeout: 1800)
         if app.existsOnDisk { reloadVersion() }
     }
 

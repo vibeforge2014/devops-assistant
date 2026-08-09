@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// auto-discovered (Issuer ID, Match password).
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var catalog = ProjectCatalog()
+    @EnvironmentObject private var catalog: ProjectCatalog
 
     @State private var summary = OnboardingService.ImportSummary()
     @State private var issuerID = KeychainStore.get(.ascIssuerID) ?? ""

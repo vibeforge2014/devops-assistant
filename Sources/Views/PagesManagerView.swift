@@ -111,7 +111,7 @@ struct PagesManagerView: View {
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(site.name).font(.headline)
-                    Text(site.repo)
+                    Text(site.repositoryURL)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)

@@ -19,14 +19,14 @@ enum AppPlatform: String, Codable, CaseIterable {
 
 /// How a project's marketing/build version is stored on disk. The
 /// `VersionManager` adapts its read/write logic to this source.
-enum VersionSource: String, Codable {
+enum VersionSource: String, Codable, CaseIterable {
     case projectYml = "project.yml"
     case pbxproj
     case xcconfig
 }
 
 /// The signing mechanism a release uses. Drives how credentials are injected.
-enum SigningMethod: String, Codable {
+enum SigningMethod: String, Codable, CaseIterable {
     case match       // fastlane match (encrypted git repo)
     case sigh        // fastlane cert + sigh
     case developerID = "developer-id"   // macOS Developer ID hand-signing
@@ -34,7 +34,7 @@ enum SigningMethod: String, Codable {
 }
 
 /// The build/release engine that drives a project.
-enum ReleaseEngine: String, Codable {
+enum ReleaseEngine: String, Codable, CaseIterable {
     case fastlane    // delegate to an existing Fastfile lane
     case native      // assistant drives xcodebuild/notarytool directly
 }
@@ -78,6 +78,7 @@ struct AppProject: Codable, Identifiable, Equatable {
     let id: String          // stable slug, e.g. "tivon"
     let name: String        // display name, e.g. "Tivon"
     let path: String        // absolute or ~-prefixed project root
+    let repositoryURL: String // complete Git clone URL (SSH or HTTPS)
     let platform: AppPlatform
     let scheme: String      // Xcode scheme to build
     let bundleId: String
@@ -100,8 +101,48 @@ struct SiteProject: Codable, Identifiable, Equatable {
     let id: String
     let name: String
     let path: String        // local clone root
-    let repo: String        // e.g. "vibeforge2014/serverhub-support"
+    let repositoryURL: String // complete Git clone URL (SSH or HTTPS)
     let deploy: DeployMethod
+
+    init(id: String, name: String, path: String,
+         repositoryURL: String, deploy: DeployMethod) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.repositoryURL = repositoryURL
+        self.deploy = deploy
+    }
+
+    /// Decode the current full-URL shape and the legacy `repo: owner/name`
+    /// shape used by bundled catalogs before project management was editable.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        deploy = try container.decode(DeployMethod.self, forKey: .deploy)
+        if let url = try container.decodeIfPresent(String.self, forKey: .repositoryURL) {
+            repositoryURL = url
+        } else {
+            let legacy = try container.decode(String.self, forKey: .repo)
+            repositoryURL = legacy.contains("://") || legacy.hasPrefix("git@")
+                ? legacy
+                : "git@github.com:\(legacy).git"
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(path, forKey: .path)
+        try container.encode(repositoryURL, forKey: .repositoryURL)
+        try container.encode(deploy, forKey: .deploy)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, path, repositoryURL, repo, deploy
+    }
 
     var resolvedPath: String {
         path.hasPrefix("~") ? NSString(string: path).expandingTildeInPath : path
@@ -113,7 +154,7 @@ struct SiteProject: Codable, Identifiable, Equatable {
 }
 
 /// How a site is published after a push.
-enum DeployMethod: String, Codable {
+enum DeployMethod: String, Codable, CaseIterable {
     /// Push to main triggers a GitHub Actions workflow that builds & deploys.
     case gitPushMain = "git-push-main"
     /// The portal: gh-pages npm package pushes out/ to the gh-pages branch.

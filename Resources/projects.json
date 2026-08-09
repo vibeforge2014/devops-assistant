@@ -4,6 +4,7 @@
       "id": "tivon",
       "name": "Tivon",
       "path": "~/Desktop/atvtool",
+      "repositoryURL": "git@github.com:vibeforge2014/atvtool.git",
       "platform": "ios",
       "scheme": "ATVTool",
       "bundleId": "com.atvtool.ios",
@@ -22,6 +23,7 @@
       "id": "tellyra",
       "name": "Tellyra",
       "path": "~/Desktop/aptv-ios",
+      "repositoryURL": "git@github.com:vibeforge2014/aptv-ios.git",
       "platform": "ios",
       "scheme": "aptv",
       "bundleId": "com.aptv.app",
@@ -40,6 +42,7 @@
       "id": "serverhub",
       "name": "ServerHub",
       "path": "~/Desktop/ServerCat-iOS",
+      "repositoryURL": "git@github.com:vibeforge2014/ServerCat-iOS.git",
       "platform": "ios",
       "scheme": "ServerCat",
       "bundleId": "com.servercat.app",
@@ -58,6 +61,7 @@
       "id": "chargepilot",
       "name": "ChargePilot",
       "path": "~/Desktop/aidente",
+      "repositoryURL": "git@github.com:vibeforge2014/chargepilot.git",
       "platform": "macos",
       "scheme": "Aidente",
       "bundleId": "com.aidente.app",
@@ -75,6 +79,7 @@
       "id": "minuteflow",
       "name": "MinuteFlow",
       "path": "~/Documents/会议助手/ios/MeetingAssistant",
+      "repositoryURL": "git@github.com:vibeforge2014/minuteflow-source.git",
       "platform": "ios",
       "scheme": "MeetingAssistant",
       "bundleId": "com.zqian.meetingassistant",
@@ -92,6 +97,7 @@
       "id": "tunesync",
       "name": "TuneSync",
       "path": "~/Desktop/TuneSync-iOS-Native",
+      "repositoryURL": "git@github.com:vibeforge2014/TuneSync-iOS.git",
       "platform": "ios",
       "scheme": "TuneSync",
       "bundleId": "qz.TuneSync",
@@ -110,6 +116,7 @@
       "id": "tailtalk",
       "name": "TailTalk",
       "path": "~/Desktop/TailTalk/TailTalk",
+      "repositoryURL": "git@github.com:vibeforge2014/tailtalk.git",
       "platform": "ios",
       "scheme": "TailTalk",
       "bundleId": "zqian15.TailTalk",
@@ -130,56 +137,56 @@
       "id": "tivon-support",
       "name": "Tivon 发布页",
       "path": "~/Desktop/atvtool/support-site",
-      "repo": "vibeforge2014/tivon-support",
+      "repositoryURL": "git@github.com:vibeforge2014/tivon-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tellyra-support",
       "name": "Tellyra 发布页",
       "path": "~/Desktop/tellyra-support-site",
-      "repo": "vibeforge2014/tellyra-support",
+      "repositoryURL": "git@github.com:vibeforge2014/tellyra-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "serverhub-support",
       "name": "ServerHub 发布页",
       "path": "~/Desktop/serverhub-support-site",
-      "repo": "vibeforge2014/serverhub-support",
+      "repositoryURL": "git@github.com:vibeforge2014/serverhub-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tailtalk-site",
       "name": "TailTalk 发布页",
       "path": "~/Desktop/TailTalk/TailTalk-site",
-      "repo": "vibeforge2014/tailtalk-site",
+      "repositoryURL": "git@github.com:vibeforge2014/tailtalk-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "chargepilot-site",
       "name": "ChargePilot 发布页",
       "path": "~/Desktop/chargepilot-site",
-      "repo": "vibeforge2014/chargepilot-site",
+      "repositoryURL": "git@github.com:vibeforge2014/chargepilot-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "meeting-assistant-site",
       "name": "MinuteFlow 发布页",
       "path": "~/Desktop/meeting-assistant-site",
-      "repo": "vibeforge2014/meeting-assistant-site",
+      "repositoryURL": "git@github.com:vibeforge2014/meeting-assistant-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tunesync-site",
       "name": "TuneSync 发布页",
       "path": "~/Desktop/TuneSync-Site",
-      "repo": "vibeforge2014/TuneSync-Site",
+      "repositoryURL": "git@github.com:vibeforge2014/TuneSync-Site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "portal",
       "name": "门户 Portal",
       "path": "~/.zcode/workspace/default/portal",
-      "repo": "vibeforge2014/portal",
+      "repositoryURL": "git@github.com:vibeforge2014/portal.git",
       "deploy": "gh-pages"
     }
   ]

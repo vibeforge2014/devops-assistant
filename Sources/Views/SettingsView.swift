@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// 凭证管理视图。编辑先停留在页面草稿中，用户确认后才批量写入 macOS 钥匙串，
 /// 避免输入过程中反复访问钥匙串或保存半截凭证。
 struct SettingsView: View {
-    @StateObject private var catalog = ProjectCatalog()
+    @EnvironmentObject private var catalog: ProjectCatalog
     @State private var values: [Credential: String] = [:]
     @State private var savedValues: [Credential: String] = [:]
     @State private var revealedCredentials: Set<Credential> = []

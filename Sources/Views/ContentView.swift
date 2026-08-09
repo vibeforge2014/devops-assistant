@@ -17,6 +17,15 @@ struct ContentView: View {
                 DashboardView()
             }
         }
+        .onReceive(catalog.$data) { _ in
+            switch selection {
+            case .app(let id) where catalog.app(id: id) == nil,
+                 .site(let id) where catalog.site(id: id) == nil:
+                selection = .dashboard
+            default:
+                break
+            }
+        }
     }
 
     @ViewBuilder
@@ -44,6 +53,8 @@ struct ContentView: View {
             VersionEditorView()
         case .pages:
             PagesManagerView()
+        case .projectManager:
+            ProjectManagementView()
         case .settings:
             SettingsView()
         }
@@ -58,6 +69,7 @@ enum SidebarItem: Hashable {
     case history
     case versionEditor
     case pages
+    case projectManager
     case settings
 }
 

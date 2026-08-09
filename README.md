@@ -20,6 +20,7 @@ VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本
 | **凭证有效性** | 只读验证 ASC Apple 认证、本机分发证书、Match 仓库与解密密码,失败时引导补录 |
 | **发布页更新** | 批量 git pull → 编辑 → push,触发 GitHub Pages 自动部署 |
 | **发布历史** | 记录每次发布的版本/目标/结果,按应用筛选追溯(本地存储) |
+| **动态项目管理** | 在应用内新增、编辑、删除应用与站点，支持切换本地目录和完整 GitHub URL |
 
 ## 凭据管理
 
@@ -55,7 +56,11 @@ xcodebuild test -project DevOpsAssistant.xcodeproj -scheme DevOpsAssistant -dest
 
 ## 配置项目
 
-编辑 `Resources/projects.json`,声明每个项目的路径、平台、scheme、bundle id、签名机制、版本号来源。详见该文件的注释。
+在侧栏打开 **项目管理**，可维护应用与站点的本地目录、完整 GitHub SSH/HTTPS URL，以及构建、签名和部署参数。首次启动会从 `Resources/projects.json` 导入默认项目，之后配置保存在：
+
+`~/Library/Application Support/com.vibeforge.devops-assistant/projects.json`
+
+修改已有本地仓库的 URL 时，助手会检测 `origin` 并询问是否同步。删除项目只会移出管理清单，不会删除本地文件、发布历史或钥匙串凭据。
 
 ## 技术栈
 

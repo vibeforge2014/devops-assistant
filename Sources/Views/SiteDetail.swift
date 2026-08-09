@@ -55,7 +55,7 @@ struct SiteDetail: View {
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 4) {
                 Text(site.name).font(.largeTitle.bold())
-                Text(site.repo)
+                Text(site.repositoryURL)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -80,7 +80,7 @@ struct SiteDetail: View {
 
     private var infoCard: some View {
         let rows: [(String, String)] = [
-            ("仓库", site.repo),
+            ("仓库", site.repositoryURL),
             ("本地路径", site.resolvedPath),
             ("部署方式", deployDescription),
             ("状态", site.existsOnDisk ? "已克隆" : "未克隆")
@@ -206,8 +206,9 @@ struct SiteDetail: View {
         let target = URL(fileURLWithPath: site.resolvedPath)
         let parent = target.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         runner.log("▶ git clone — \(site.name)")
-        _ = await runner.run("git clone git@github.com:\(site.repo).git .", cwd: site.resolvedPath)
+        _ = await runner.run(executable: "/usr/bin/git",
+                             args: ["clone", site.repositoryURL, site.resolvedPath],
+                             timeout: 1800)
     }
 }

@@ -16,6 +16,7 @@ struct DevOpsAssistantApp: App {
                 .frame(minWidth: 980, minHeight: 620)
                 .sheet(isPresented: $showOnboarding) {
                     OnboardingView()
+                        .environmentObject(catalog)
                 }
                 .onAppear {
                     // First run: if essential credentials are missing, walk the
@@ -36,6 +37,8 @@ struct DevOpsAssistantApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(catalog)
+                .environmentObject(registry)
         }
     }
 }
