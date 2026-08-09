@@ -27,18 +27,27 @@ fi
 echo "▶ Submitting $ARTIFACT for notarization…"
 xcrun notarytool submit "$ARTIFACT" "${auth_args[@]}" --wait
 
-# Staple when the artifact is a dmg/pkg, or when an app path is given.
+# Staple when the artifact is a dmg/pkg, or when an app path is given. ZIP files
+# cannot carry a ticket themselves; their enclosed app is the staple target.
+VALIDATE_TARGET=""
 case "$ARTIFACT" in
   *.dmg|*.pkg)
     echo "▶ Stapling $ARTIFACT…"
     xcrun stapler staple "$ARTIFACT"
+    VALIDATE_TARGET="$ARTIFACT"
     ;;
 esac
 if [[ -n "$STAPLE_APP_PATH" && -d "$STAPLE_APP_PATH" ]]; then
   echo "▶ Stapling app at $STAPLE_APP_PATH…"
   xcrun stapler staple "$STAPLE_APP_PATH"
+  VALIDATE_TARGET="$STAPLE_APP_PATH"
 fi
 
-echo "▶ Validating…"
-xcrun stapler validate "$ARTIFACT"
+if [[ -z "$VALIDATE_TARGET" ]]; then
+  echo "ERROR: no staple target for artifact '$ARTIFACT'" >&2
+  exit 1
+fi
+
+echo "▶ Validating $VALIDATE_TARGET…"
+xcrun stapler validate "$VALIDATE_TARGET"
 echo "✓ Notarization complete"

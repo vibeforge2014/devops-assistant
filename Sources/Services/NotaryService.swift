@@ -23,31 +23,42 @@ final class NotaryService {
         var env: [String: String] = CredentialEnv.build()
         if let entitlements { env["ENTITLEMENTS"] = entitlements }
         runner.log("▶ Developer ID 签名 — \(appPath)")
-        return await runner.run("'\(scriptsDir)/codesign-mac.sh' '\(appPath)'", env: env)
+        return await runner.run(executable: "\(scriptsDir)/codesign-mac.sh",
+                                args: [appPath], env: env, timeout: 900)
     }
 
     /// Notarize an artifact (dmg/pkg/zip) and staple the ticket.
     @discardableResult
     func notarize(artifact: String, stapleApp: String? = nil) async -> RunResult {
         let env = notaryEnv()
-        let stapleArg = stapleApp.map { "'\($0)'" } ?? ""
         runner.log("▶ Apple 公证 — \(artifact)")
-        return await runner.run("'\(scriptsDir)/notarize.sh' '\(artifact)' \(stapleArg)", env: env)
+        var args = [artifact]
+        if let stapleApp { args.append(stapleApp) }
+        return await runner.run(executable: "\(scriptsDir)/notarize.sh",
+                                args: args, env: env, timeout: 3600)
     }
 
     /// Full macOS distribution pipeline: sign → (optionally build dmg) → notarize.
     @discardableResult
     func distribute(app: AppProject, appBundle: String, dmg: String? = nil) async -> RunResult {
+        defer { cleanupTempKey() }
         // 1. Sign the app bundle.
         let signResult = await signAppBundle(at: appBundle)
         guard signResult.succeeded else { return signResult }
 
-        // 2. Notarize the dmg if provided, else the app.
+        // 2. Notarize the dmg if provided. Otherwise package the app as a ZIP;
+        // raw .app bundles are not a portable notary submission artifact.
         if let dmg {
             return await notarize(artifact: dmg, stapleApp: appBundle)
-        } else {
-            return await notarize(artifact: appBundle)
         }
+        let zip = "\(app.resolvedPath)/build/\(app.scheme).zip"
+        try? FileManager.default.removeItem(atPath: zip)
+        runner.log("▶ 打包公证 ZIP — \(zip)")
+        let packaged = await runner.run(executable: "/usr/bin/ditto",
+                                          args: ["-c", "-k", "--keepParent", appBundle, zip],
+                                          timeout: 600)
+        guard packaged.succeeded else { return packaged }
+        return await notarize(artifact: zip, stapleApp: appBundle)
     }
 
     /// Build the notarytool auth env from an ASC API key stored in the keychain.

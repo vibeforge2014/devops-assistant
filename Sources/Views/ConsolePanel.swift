@@ -43,6 +43,7 @@ struct ConsolePanel: View {
                                 .id(line.id)
                         }
                     }
+                    .textSelection(.enabled)
                     .padding(8)
                 }
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.3))

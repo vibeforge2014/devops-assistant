@@ -21,33 +21,48 @@ final class BuildService {
             return RunResult(exitCode: 0, cancelled: false)
         }
         runner.log("▶ xcodegen generate")
-        return await runner.run("xcodegen generate", cwd: path)
+        return await runner.run(executable: "/usr/bin/env", args: ["xcodegen", "generate"],
+                                cwd: path, timeout: 120)
     }
 
     /// Build an archive (xcarchive) for an app's scheme, generic destination.
     @discardableResult
-    func archive(app: AppProject, to archivePath: String) async -> RunResult {
+    func archive(app: AppProject,
+                 to archivePath: String,
+                 signingAllowed: Bool = false,
+                 apiKey: TemporaryAPIKey? = nil) async -> RunResult {
         let destination = app.platform == .macos
             ? "generic/platform=macOS"
             : "generic/platform=iOS"
-        let cmd = """
-        xcodebuild archive \
-          -scheme \(app.scheme) \
-          -destination '\(destination)' \
-          -archivePath '\(archivePath)' \
-          -derivedDataPath '\(app.resolvedPath)/build/DerivedData' \
-          CODE_SIGNING_ALLOWED=NO
-        """
         runner.log("▶ xcodebuild archive — \(app.scheme)")
-        return await runner.run(cmd, cwd: app.resolvedPath)
+        var args = [
+            "archive",
+            "-scheme", app.scheme,
+            "-destination", destination,
+            "-archivePath", archivePath,
+            "-derivedDataPath", "\(app.resolvedPath)/build/DerivedData",
+        ]
+        if signingAllowed {
+            args.append("-allowProvisioningUpdates")
+            if let apiKey {
+                args += ["-authenticationKeyPath", apiKey.url.path,
+                         "-authenticationKeyID", apiKey.keyID,
+                         "-authenticationKeyIssuerID", apiKey.issuerID]
+            }
+        } else {
+            args.append("CODE_SIGNING_ALLOWED=NO")
+        }
+        return await runner.run(executable: "/usr/bin/xcodebuild", args: args,
+                                cwd: app.resolvedPath, timeout: 3600)
     }
 
     /// Clean the build folder.
     @discardableResult
     func clean(app: AppProject) async -> RunResult {
         runner.log("▶ xcodebuild clean — \(app.scheme)")
-        let cmd = "xcodebuild clean -scheme \(app.scheme)"
-        return await runner.run(cmd, cwd: app.resolvedPath)
+        return await runner.run(executable: "/usr/bin/xcodebuild",
+                                args: ["clean", "-scheme", app.scheme],
+                                cwd: app.resolvedPath, timeout: 900)
     }
 
     /// A conventional archive path for an app under its build/ dir.

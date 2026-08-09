@@ -5,7 +5,7 @@ import Foundation
 /// (storage) and ShellRunner (execution) — it never persists anything itself.
 struct CredentialEnv {
     /// A map suitable for passing to `ShellRunner.run(_:env:)`.
-    static func build() -> [String: String] {
+    static func build(for app: AppProject? = nil) -> [String: String] {
         var env: [String: String] = [:]
 
         // Apple team id (used by cert/sigh/match defaults).
@@ -23,8 +23,11 @@ struct CredentialEnv {
             env["APP_STORE_CONNECT_ISSUER_ID"] = issuer
         }
         if let content = KeychainStore.get(.ascAPIKeyContent) {
-            // fastlane accepts base64-encoded key content directly.
-            env["APP_STORE_CONNECT_KEY_CONTENT"] = Data(content.utf8).base64EncodedString()
+            // Projects in the catalog use both fastlane conventions. Keep the
+            // unambiguous variables available and let runLane also provide a
+            // temporary key path, which every path-aware Fastfile prefers.
+            env["APP_STORE_CONNECT_KEY_CONTENT"] = content
+            env["APP_STORE_CONNECT_KEY_BASE64"] = Data(content.utf8).base64EncodedString()
         } else if let keyID = KeychainStore.get(.ascAPIKeyID) {
             // Fall back to the on-disk key file convention.
             env["APP_STORE_CONNECT_KEY_PATH"] = "\(home)/.appstoreconnect/private_keys/AuthKey_\(keyID).p8"
@@ -34,7 +37,7 @@ struct CredentialEnv {
         if let pw = KeychainStore.get(.matchPassword) {
             env["MATCH_PASSWORD"] = pw
         }
-        if let url = KeychainStore.get(.matchGitURL) {
+        if let url = app?.release.matchGitURL ?? KeychainStore.get(.matchGitURL) {
             env["MATCH_GIT_URL"] = url
         }
 
@@ -72,9 +75,17 @@ final class FastlaneRunner {
     /// Run a fastlane lane for an app, injecting credential env.
     @discardableResult
     func runLane(_ lane: String, app: AppProject, platform: String = "ios") async -> RunResult {
-        let cmd = "bundle exec fastlane \(platform) \(lane)"
         runner.log("▶ fastlane \(platform) \(lane) — \(app.name)")
-        return await runner.run(cmd, cwd: app.resolvedPath, env: CredentialEnv.build())
+        var env = CredentialEnv.build(for: app)
+        let temporaryKey = TemporaryAPIKey()
+        if let temporaryKey {
+            env["APP_STORE_CONNECT_KEY_PATH"] = temporaryKey.url.path
+        }
+        return await runner.run(executable: "/usr/bin/env",
+                                args: ["bundle", "exec", "fastlane", platform, lane],
+                                cwd: app.resolvedPath,
+                                env: env,
+                                timeout: 3600)
     }
 
     /// Whether fastlane is installed and available on PATH.

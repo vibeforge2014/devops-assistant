@@ -46,19 +46,29 @@ struct ReleaseConfig: Codable, Equatable {
     let betaLane: String?
     /// fastlane lane for App Store release (nil when engine != fastlane).
     let releaseLane: String?
+    /// Optional lane that only prepares/installs signing assets. Some Fastfiles
+    /// perform signing inside beta/release and therefore intentionally omit it.
+    let signingLane: String?
     let signing: SigningMethod
+    /// Per-project Match repository. A single global URL is only a fallback:
+    /// different apps may intentionally keep profiles in different repos.
+    let matchGitURL: String?
     /// Whether macOS notarization is required after signing.
     let notarize: Bool
 
     init(engine: ReleaseEngine,
          betaLane: String? = nil,
          releaseLane: String? = nil,
+         signingLane: String? = nil,
          signing: SigningMethod,
+         matchGitURL: String? = nil,
          notarize: Bool = false) {
         self.engine = engine
         self.betaLane = betaLane
         self.releaseLane = releaseLane
+        self.signingLane = signingLane
         self.signing = signing
+        self.matchGitURL = matchGitURL
         self.notarize = notarize
     }
 }
@@ -108,6 +118,34 @@ enum DeployMethod: String, Codable {
     case gitPushMain = "git-push-main"
     /// The portal: gh-pages npm package pushes out/ to the gh-pages branch.
     case ghPages = "gh-pages"
+}
+
+/// A release destination exposed by the one-click release flow.
+enum ReleaseTarget: String, CaseIterable, Identifiable {
+    case testFlight
+    case appStore
+    case macDistribution
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .testFlight: "TestFlight 测试"
+        case .appStore: "App Store 上架"
+        case .macDistribution: "macOS 分发(公证)"
+        }
+    }
+
+    static func available(for app: AppProject) -> [ReleaseTarget] {
+        if app.platform == .macos {
+            return app.release.notarize ? [.macDistribution] : []
+        }
+        guard app.platform == .ios || app.platform == .tvos else { return [] }
+        // Every local iOS project can use the built-in IPA + altool fallback.
+        var targets: [ReleaseTarget] = [.testFlight]
+        if app.release.releaseLane != nil { targets.append(.appStore) }
+        return targets
+    }
 }
 
 /// The top-level catalog: all apps and sites managed by the assistant.

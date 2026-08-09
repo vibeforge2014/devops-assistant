@@ -12,10 +12,12 @@ VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本
 | 模块 | 能力 |
 |------|------|
 | **仪表盘总览** | 一屏概览所有应用(版本/路径状态)、站点(克隆状态)与最近发布 |
-| **构建打包** | xcodegen 生成工程 + xcodebuild archive,管理版本号/Build 号 |
+| **构建打包** | xcodegen + xcodebuild archive,内置导出 IPA / 签名打包 DMG |
 | **签名与公证** | iOS:match / cert+sigh;macOS:Developer ID 签名 + notarytool 公证 |
-| **TestFlight / App Store** | 封装 fastlane beta/release lane,注入 ASC API Key |
+| **TestFlight / App Store** | 全本地执行:项目上传脚本 → 本地 Fastlane → 内置 IPA + altool |
 | **一键发布** | 向导式串联:设版本 → 构建 → 签名 → (公证) → 上传 → 联动更新 Portal |
+| **发布预检** | 发布前检查路径/版本、Fastlane lane、Bundler、凭据、Git 状态与 Portal 映射 |
+| **凭证有效性** | 只读验证 ASC Apple 认证、本机分发证书、Match 仓库与解密密码,失败时引导补录 |
 | **发布页更新** | 批量 git pull → 编辑 → push,触发 GitHub Pages 自动部署 |
 | **发布历史** | 记录每次发布的版本/目标/结果,按应用筛选追溯(本地存储) |
 
@@ -26,7 +28,7 @@ VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本
 - Match 仓库密码 / 地址
 - Apple Team ID
 
-首次使用前在 **设置 → 凭据** 中填入。运行时从钥匙串读取并注入进程环境变量,不落盘。
+首次使用前在 **设置 → 凭据** 中填入并点击“验证全部”。支持直接导入 `AuthKey_*.p8`;临时密钥文件权限为 `0600`,进程结束后自动删除。
 
 ## 构建
 
@@ -38,7 +40,18 @@ xcodegen generate
 open DevOpsAssistant.xcodeproj
 # 或
 xcodebuild -project DevOpsAssistant.xcodeproj -scheme DevOpsAssistant -configuration Debug build
+
+# 运行单元测试
+xcodebuild test -project DevOpsAssistant.xcodeproj -scheme DevOpsAssistant -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
+
+## 发布能力说明
+
+- TestFlight 始终在本机执行,不会推 tag 或触发 GitHub Actions;有上传脚本时优先调用脚本。
+- 没有脚本时使用本地 Fastlane beta lane;没有 lane 时由助手内置导出 IPA 并通过 altool 上传。
+- macOS Developer ID 项目走签名 → ZIP → notarytool → staple → validate。
+- native iOS 项目也可使用内置 TestFlight 兜底,项目详情提供独立“打包 IPA / DMG”入口。
+- 发布前必须通过预检;Git 未提交修改作为警告展示,缺失凭据/lane/依赖会阻止启动。
 
 ## 配置项目
 

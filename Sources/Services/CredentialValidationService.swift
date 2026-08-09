@@ -142,17 +142,41 @@ struct CredentialValidationService {
                 let temp = FileManager.default.temporaryDirectory
                     .appendingPathComponent("vibeforge-match-\(UUID().uuidString)", isDirectory: true)
                 defer { try? FileManager.default.removeItem(at: temp) }
-                let clone = command("/usr/bin/git", ["clone", "--depth", "1", url, temp.path], timeout: 45)
-                guard clone.status == 0 else {
-                    return .init(id: "match-\(url)", title: "Match · \(slug)", detail: "仓库克隆失败",
-                                 guidance: "检查 SSH 密钥权限。", status: .failed)
+                let fastlaneTemp = temp.appendingPathComponent("fastlane", isDirectory: true)
+                do {
+                    try FileManager.default.createDirectory(at: fastlaneTemp,
+                                                            withIntermediateDirectories: true,
+                                                            attributes: [.posixPermissions: 0o700])
+                } catch {
+                    return .init(id: "match-\(url)", title: "Match · \(slug)", detail: "无法创建临时检查目录",
+                                 guidance: "检查系统临时目录权限后重试。", status: .failed)
                 }
-                let decrypt = command("/usr/bin/env", ["fastlane", "match", "decrypt"], cwd: temp.path,
-                                      env: ["MATCH_PASSWORD": matchPassword, "MATCH_GIT_URL": url,
-                                            "FASTLANE_SKIP_UPDATE_CHECK": "true"], timeout: 45)
+
+                // `MATCH_GIT_URL` is not consumed by the standalone
+                // `fastlane match decrypt` command. The URL must be supplied
+                // explicitly; otherwise Fastlane exits with "No value found
+                // for git_url", which was previously misreported as a bad
+                // password. Keep Fastlane's clone beneath our disposable
+                // directory so repeated checks do not leave decrypted files.
+                let decrypt = command(
+                    "/usr/bin/env",
+                    ["fastlane", "match", "decrypt", "--git_url", url],
+                    cwd: temp.path,
+                    env: ["MATCH_PASSWORD": matchPassword,
+                          "FASTLANE_SKIP_UPDATE_CHECK": "true",
+                          "TMPDIR": fastlaneTemp.path],
+                    timeout: 60
+                )
+                let output = decrypt.output.lowercased()
+                let passwordRejected = output.contains("invalid password") ||
+                    output.contains("bad decrypt") || output.contains("wrong final block")
+                let failureDetail = passwordRejected ? "仓库可访问，但密码无法解密" : "Fastlane 解密检查失败"
+                let failureGuidance = passwordRejected
+                    ? "确认该密码属于当前证书仓库；不同 Match 仓库可能使用不同密码。"
+                    : "仓库和密码未被判定为错误，请检查本机 Fastlane 配置后重试。"
                 return .init(id: "match-\(url)", title: "Match · \(slug)",
-                             detail: decrypt.status == 0 ? "仓库与解密密码有效" : "仓库可访问，但密码无法解密",
-                             guidance: decrypt.status == 0 ? nil : "录入该证书仓库创建时使用的 MATCH_PASSWORD。",
+                             detail: decrypt.status == 0 ? "仓库与解密密码有效" : failureDetail,
+                             guidance: decrypt.status == 0 ? nil : failureGuidance,
                              status: decrypt.status == 0 ? .passed : .failed)
             }
         }

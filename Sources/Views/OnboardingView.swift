@@ -1,15 +1,22 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// First-run onboarding sheet. Auto-probes the machine for existing credentials
 /// and imports them in one tap, then asks for the few values that can't be
 /// auto-discovered (Issuer ID, Match password).
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var catalog = ProjectCatalog()
 
     @State private var summary = OnboardingService.ImportSummary()
     @State private var issuerID = KeychainStore.get(.ascIssuerID) ?? ""
+    @State private var keyID = KeychainStore.get(.ascAPIKeyID) ?? ""
+    @State private var teamID = KeychainStore.get(.appleTeamID) ?? ""
     @State private var matchPassword = KeychainStore.get(.matchPassword) ?? ""
     @State private var didImport = false
+    @State private var validating = false
+    @State private var validationResults: [CredentialValidationResult] = []
+    @State private var showKeyImporter = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,17 +59,33 @@ struct OnboardingView: View {
                 }
 
                 Section {
+                    Button {
+                        showKeyImporter = true
+                    } label: {
+                        Label("选择 AuthKey_*.p8", systemImage: "doc.badge.plus")
+                    }
+                    TextField("Key ID（10 位）", text: $keyID)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
                     TextField("Issuer ID", text: $issuerID)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
                         .placeholder(when: issuerID.isEmpty) {
                             Text("00000000-0000-0000-0000-000000000000").foregroundStyle(.tertiary)
                         }
-                    Text("在 App Store Connect → 用户和访问 → 密钥 页面查看")
+                    Text("在 App Store Connect → 用户和访问 → 集成 → 密钥 页面下载并查看")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Label("Issuer ID(需手动填写)", systemImage: "person.badge.key")
+                    Label("App Store Connect API Key", systemImage: "person.badge.key")
+                }
+
+                Section("Apple Developer") {
+                    TextField("Team ID（10 位）", text: $teamID)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                    Text("可在 Apple Developer → Membership details 查看")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
@@ -73,6 +96,19 @@ struct OnboardingView: View {
                     }
                 } header: {
                     Label("Match 密码(需手动填写)", systemImage: "lock")
+                }
+
+                if !validationResults.isEmpty {
+                    Section("有效性检查") {
+                        ForEach(validationResults) { result in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label(result.title, systemImage: result.status == .passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(result.status == .passed ? .green : .red)
+                                Text(result.detail).font(.caption).foregroundStyle(.secondary)
+                                if let guidance = result.guidance { Text(guidance).font(.caption).foregroundStyle(.orange) }
+                            }
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -88,20 +124,22 @@ struct OnboardingView: View {
                 }
                 Spacer()
                 Button("稍后") { dismiss() }
-                Button("完成") {
-                    saveManual()
-                    dismiss()
-                }
+                Button(validating ? "验证中…" : "验证并完成") { validateAndFinish() }
                 .buttonStyle(.borderedProminent)
-                .disabled(issuerID.isEmpty)
+                .disabled(issuerID.isEmpty || keyID.isEmpty || teamID.isEmpty || validating)
             }
             .padding(16)
         }
-        .frame(width: 540, height: 560)
+        .frame(width: 560, height: 680)
+        .fileImporter(isPresented: $showKeyImporter, allowedContentTypes: [.data]) { result in
+            importAPIKey(result)
+        }
     }
 
     private func importNow() {
         summary = OnboardingService.autoImport()
+        keyID = KeychainStore.get(.ascAPIKeyID) ?? keyID
+        teamID = KeychainStore.get(.appleTeamID) ?? teamID
         didImport = true
     }
 
@@ -109,8 +147,32 @@ struct OnboardingView: View {
         if !issuerID.isEmpty {
             KeychainStore.set(issuerID, for: .ascIssuerID)
         }
+        if !keyID.isEmpty { KeychainStore.set(keyID, for: .ascAPIKeyID) }
+        if !teamID.isEmpty { KeychainStore.set(teamID, for: .appleTeamID) }
         if !matchPassword.isEmpty {
             KeychainStore.set(matchPassword, for: .matchPassword)
+        }
+    }
+
+    private func importAPIKey(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else { return }
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let content = try? String(contentsOf: url, encoding: .utf8),
+              content.contains("BEGIN PRIVATE KEY") else { return }
+        KeychainStore.set(content, for: .ascAPIKeyContent)
+        let name = url.deletingPathExtension().lastPathComponent
+        if name.hasPrefix("AuthKey_") { keyID = String(name.dropFirst("AuthKey_".count)) }
+    }
+
+    private func validateAndFinish() {
+        saveManual()
+        validating = true
+        Task {
+            let results = await CredentialValidationService.validate(catalog: catalog.data)
+            validationResults = results
+            validating = false
+            if !results.contains(where: { $0.status == .failed }) { dismiss() }
         }
     }
 }

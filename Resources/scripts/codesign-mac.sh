@@ -30,9 +30,12 @@ if [[ -n "$ENTITLEMENTS" && -f "$ENTITLEMENTS" ]]; then
   sign_args+=(--entitlements "$ENTITLEMENTS")
 fi
 
-echo "▶ Signing nested code (frameworks/helpers)…"
-find "$APP" -type f \( -name "*.dylib" -o -name "*.framework" \) -print0 | while IFS= read -r -d '' f; do
-  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$f" 2>/dev/null || true
+echo "▶ Signing nested code (frameworks/extensions/helpers)…"
+find "$APP" -depth \( \
+  \( -type f -name "*.dylib" \) -o \
+  \( -type d \( -name "*.framework" -o -name "*.appex" -o -name "*.xpc" \) \) \
+\) -print0 | while IFS= read -r -d '' f; do
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$f"
 done
 
 echo "▶ Signing $APP with '$IDENTITY'…"

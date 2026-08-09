@@ -82,7 +82,6 @@ final class ShellRunner: ObservableObject {
                             cwd: String?,
                             env: [String: String],
                             timeout: TimeInterval) async -> RunResult {
-        clear()
         isRunning = true
         didCancel = false
         defer { isRunning = false }
@@ -161,7 +160,6 @@ final class ShellRunner: ObservableObject {
                         didCancel = true
                         lines.append(LogLine(text: "⏱ 超时 \(Int(timeout))s — 终止进程", stream: .meta))
                         proc.terminate()
-                        resumeOnce()
                     }
                 }
             }

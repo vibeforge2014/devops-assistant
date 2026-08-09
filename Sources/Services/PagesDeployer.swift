@@ -19,7 +19,20 @@ final class PagesDeployer {
     @discardableResult
     func pull(_ site: SiteProject) async -> RunResult {
         runner.log("▶ git pull — \(site.name)")
-        return await runner.run(executable: git, args: ["pull", "--ff-only"], cwd: site.resolvedPath)
+        return await runner.run(executable: git, args: ["pull", "--ff-only"],
+                                cwd: site.resolvedPath, timeout: 300)
+    }
+
+    /// Route deployment according to the catalog instead of treating Portal
+    /// like a normal push-to-main site.
+    @discardableResult
+    func deploy(_ site: SiteProject, message: String) async -> RunResult {
+        switch site.deploy {
+        case .gitPushMain:
+            return await commitAndPush(site, message: message)
+        case .ghPages:
+            return await deployPortal(site, message: message)
+        }
     }
 
     /// Stage all changes, commit with a message, and push to origin HEAD.
@@ -29,7 +42,8 @@ final class PagesDeployer {
         let result = await stageAndCommit(site, message: message)
         guard result.succeeded else { return result }
         runner.log("▶ git push — \(site.name)")
-        return await runner.run(executable: git, args: ["push", "origin", "HEAD"], cwd: site.resolvedPath)
+        return await runner.run(executable: git, args: ["push", "origin", "HEAD"],
+                                cwd: site.resolvedPath, timeout: 300)
     }
 
     /// For portal specifically: stage, commit, then run its npm deploy script.
@@ -38,7 +52,8 @@ final class PagesDeployer {
         runner.log("▶ git commit + npm run deploy — Portal")
         let result = await stageAndCommit(portal, message: message)
         guard result.succeeded else { return result }
-        return await runner.run("npm run deploy", cwd: portal.resolvedPath)
+        return await runner.run(executable: "/usr/bin/env", args: ["npm", "run", "deploy"],
+                                cwd: portal.resolvedPath, timeout: 1800)
     }
 
     // MARK: - Shared
@@ -46,6 +61,14 @@ final class PagesDeployer {
     private func stageAndCommit(_ site: SiteProject, message: String) async -> RunResult {
         let add = await runner.run(executable: git, args: ["add", "-A"], cwd: site.resolvedPath)
         guard add.succeeded else { return add }
+        let diff = await runner.run(executable: git,
+                                    args: ["diff", "--cached", "--quiet"],
+                                    cwd: site.resolvedPath)
+        if diff.succeeded {
+            runner.log("ℹ 没有需要提交的变更")
+            return RunResult(exitCode: 0, cancelled: false)
+        }
+        guard diff.exitCode == 1 else { return diff }
         // Sanitize: messages with a leading dash could be parsed as flags; a
         // trailing note avoids that without changing intent for normal text.
         let safeMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)

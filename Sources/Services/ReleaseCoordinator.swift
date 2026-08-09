@@ -1,23 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// Which release channel to run for an app.
-enum ReleaseTarget: String, CaseIterable, Identifiable {
-    case testFlight
-    case appStore
-    case macDistribution
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .testFlight: "TestFlight 测试"
-        case .appStore: "App Store 上架"
-        case .macDistribution: "macOS 分发(公证)"
-        }
-    }
-}
-
 /// Orchestrates a full release of one app: version → build → sign →
 /// (notarize) → upload → update pages. Runs steps sequentially and STOPS at
 /// the first failure, reporting which step and why. Each step is driven
@@ -36,6 +19,7 @@ final class ReleaseCoordinator: ObservableObject {
 
     private var build: BuildService { BuildService(runner: runner) }
     private var fastlane: FastlaneRunner { FastlaneRunner(runner: runner) }
+    private var localTestFlight: LocalTestFlightService { LocalTestFlightService(runner: runner) }
     private var notary: NotaryService { NotaryService(runner: runner) }
 
     init(app: AppProject, runner: ShellRunner, catalog: ProjectCatalog, historyStore: HistoryStore) {
@@ -70,9 +54,11 @@ final class ReleaseCoordinator: ObservableObject {
     /// the new version into the portal's product data (a best-effort step that
     /// never aborts an otherwise-successful release).
     func steps(for target: ReleaseTarget) -> [ReleaseStep] {
+        guard ReleaseTarget.available(for: app).contains(target) else { return [] }
         switch target {
         case .testFlight:
-            return [.setVersion, .build, .sign, .uploadBeta, .updatePages]
+            // Local scripts/lanes own archive + signing; don't build twice.
+            return [.setVersion, .uploadBeta, .updatePages]
         case .appStore:
             return [.setVersion, .build, .sign, .uploadRelease, .updatePages]
         case .macDistribution:
@@ -93,6 +79,11 @@ final class ReleaseCoordinator: ObservableObject {
     /// Every run (success or failure) is appended to history before returning.
     @discardableResult
     func run(target: ReleaseTarget, version: VersionPair?) async -> Bool {
+        guard ReleaseTarget.available(for: app).contains(target) else {
+            runner.log("✗ 当前项目不支持 \(target.title)")
+            return false
+        }
+        runner.clear()
         isRunning = true
         defer { isRunning = false }
 
@@ -134,6 +125,14 @@ final class ReleaseCoordinator: ObservableObject {
                 ok = await runUpdatePages()
             }
 
+            if cancellationRequested {
+                stepStates[step] = .failed("已取消")
+                runner.log("✋ 已取消发布流程")
+                recordHistory(target: target, version: version,
+                              success: false, failureStep: "已取消")
+                return false
+            }
+
             if ok {
                 stepStates[step] = .succeeded
                 completedSteps.append(step)
@@ -157,6 +156,12 @@ final class ReleaseCoordinator: ObservableObject {
         recordHistory(target: target, version: version,
                       success: true, failureStep: nil)
         return true
+    }
+
+    /// Cancel both the coordinator and the command that is currently running.
+    func cancel() {
+        cancellationRequested = true
+        runner.terminate()
     }
 
     // MARK: - History
@@ -211,7 +216,8 @@ final class ReleaseCoordinator: ObservableObject {
     // MARK: - Step implementations
 
     private func runBuild() async -> Bool {
-        await build.generateXcodeProject(at: app.resolvedPath)
+        let generated = await build.generateXcodeProject(at: app.resolvedPath)
+        guard generated.succeeded else { return false }
         let archive = await build.archive(app: app, to: build.archivePath(for: app))
         return archive.succeeded
     }
@@ -219,9 +225,10 @@ final class ReleaseCoordinator: ObservableObject {
     private func runSign() async -> Bool {
         switch app.release.signing {
         case .match, .sigh:
-            // Both routes are driven by existing fastlane lanes in these
-            // projects; run the certs/signing lane then verify identity.
-            let lane = app.release.signing == .match ? "certs" : "fetch_signing"
+            guard let lane = app.release.signingLane else {
+                runner.log("ℹ 签名由上传 lane 内部处理")
+                return true
+            }
             let r = await fastlane.runLane(lane, app: app)
             return r.succeeded
         case .developerID:
@@ -246,16 +253,14 @@ final class ReleaseCoordinator: ObservableObject {
             runner.log("✗ 找不到 .app: \(bundle)")
             return false
         }
-        let sign = await notary.signAppBundle(at: bundle)
-        guard sign.succeeded else { return false }
-        let dmg = "\(app.resolvedPath)/build/\(app.scheme).dmg"
-        let notarize = await notary.notarize(artifact: bundle, stapleApp: nil)
-        notary.cleanupTempKey()
-        _ = dmg
-        return notarize.succeeded
+        let service = NotaryService(runner: runner)
+        return (await service.distribute(app: app, appBundle: bundle)).succeeded
     }
 
     private func runUpload(target: ReleaseTarget) async -> Bool {
+        if target == .testFlight {
+            return (await localTestFlight.upload(app: app)).succeeded
+        }
         switch app.release.engine {
         case .fastlane:
             let lane = target == .testFlight

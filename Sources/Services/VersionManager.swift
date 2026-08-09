@@ -61,22 +61,19 @@ struct VersionManager {
 
     // MARK: - project.yml (XcodeGen)
 
-    // Matches `MARKETING_VERSION: 0.2.5` or `MARKETING_VERSION: "0.2.5"`.
-    // Groups: [1] prefix+key (incl. `:`), [2] whole `: <value>` segment.
-    // Kept separate from the pbx patterns because the value segment structure
-    // differs (no trailing `;`). `capture` reads group [2]; replace uses it too.
-    private static let ymlKeyPattern = "^(\\s*(?:-\\s+)?MARKETING_VERSION)(\\s*:\\s*(?:\"|'?)[^\"'\\s]+)"
-    private static let ymlBuildPattern = "^(\\s*(?:-\\s+)?CURRENT_PROJECT_VERSION)(\\s*:\\s*(?:\"|'?)[^\"'\\s]+)"
+    // Groups: [1] prefix+key, [2] separator, [3] quote, [4] raw value.
+    private static let ymlKeyPattern = "^(\\s*(?:-\\s+)?MARKETING_VERSION)(\\s*:\\s*)([\"']?)([^\"'\\s#]+)[\"']?"
+    private static let ymlBuildPattern = "^(\\s*(?:-\\s+)?CURRENT_PROJECT_VERSION)(\\s*:\\s*)([\"']?)([^\"'\\s#]+)[\"']?"
 
     private static func readFromProjectYml(_ dir: String) -> VersionPair? {
         guard let text = try? String(contentsOfFile: "\(dir)/project.yml", encoding: .utf8) else {
             return nil
         }
-        guard let marketing = capture(from: text, pattern: ymlKeyPattern),
-              let build = capture(from: text, pattern: ymlBuildPattern) else {
+        guard let marketing = capture(from: text, pattern: ymlKeyPattern, group: 4),
+              let build = capture(from: text, pattern: ymlBuildPattern, group: 4) else {
             return nil
         }
-        return VersionPair(marketing: unquote(marketing), build: unquote(build))
+        return VersionPair(marketing: marketing, build: build)
     }
 
     private static func writeToProjectYml(_ dir: String, version: VersionPair) -> Bool {
@@ -93,20 +90,16 @@ struct VersionManager {
     }
 
     /// Rewrite the value of every matching `key:<value>` line, keeping the
-    /// prefix (indent + key) and any quotes on the value. Groups: [1] prefix,
-    /// [2] `:` + value segment.
+    /// prefix (indent + key) and any quotes on the value.
     private static func replaceYmlCaptured(_ text: String, pattern: String, newValue: String) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return text }
         let ns = NSRange(text.startIndex..<text.endIndex, in: text)
         let matches = regex.matches(in: text, options: [], range: ns)
         var out = text
         for m in matches.reversed() {
-            guard m.numberOfRanges > 2,
-                  let segRange = Range(m.range(at: 2), in: out) else { continue }
-            let seg = String(out[segRange])
-            let quoted = seg.contains(": \"") || seg.contains(": '")
-            let newSeg = quoted ? ": \"\(newValue)\"" : ": \(newValue)"
-            out.replaceSubrange(segRange, with: newSeg)
+            guard m.numberOfRanges > 4,
+                  let valueRange = Range(m.range(at: 4), in: out) else { continue }
+            out.replaceSubrange(valueRange, with: newValue)
         }
         return out
     }
@@ -133,11 +126,13 @@ struct VersionManager {
               let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         // Simpler read regex: find any (non-comment) assignment. We match the
         // key followed by = …; on its own line, which comments never satisfy.
-        guard let marketing = capture(from: text, pattern: pbxKeyPattern),
-              let build = capture(from: text, pattern: pbxBuildPattern) else {
+        guard let marketingSegment = capture(from: text, pattern: pbxKeyPattern, group: 3),
+              let buildSegment = capture(from: text, pattern: pbxBuildPattern, group: 3),
+              let marketing = valueFromPbxSegment(marketingSegment),
+              let build = valueFromPbxSegment(buildSegment) else {
             return nil
         }
-        return VersionPair(marketing: unquote(marketing), build: unquote(build))
+        return VersionPair(marketing: marketing, build: build)
     }
 
     private static func writeToPbxproj(_ dir: String, version: VersionPair) -> Bool {
@@ -155,13 +150,13 @@ struct VersionManager {
 
     // MARK: - Regex helpers
 
-    /// Capture the value of the first match (the last capture group).
-    private static func capture(from text: String, pattern: String) -> String? {
+    /// Capture one group from the first match.
+    private static func capture(from text: String, pattern: String, group: Int) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let m = regex.firstMatch(in: text, options: [], range: range),
-              m.numberOfRanges > 0,
-              let r = Range(m.range(at: m.numberOfRanges - 1), in: text) else { return nil }
+              m.numberOfRanges > group,
+              let r = Range(m.range(at: group), in: text) else { return nil }
         return String(text[r])
     }
 
@@ -200,8 +195,14 @@ struct VersionManager {
         return " = \(newValue);"
     }
 
+    private static func valueFromPbxSegment(_ segment: String) -> String? {
+        guard let equals = segment.firstIndex(of: "="),
+              let semicolon = segment.lastIndex(of: ";"), equals < semicolon else { return nil }
+        return unquote(String(segment[segment.index(after: equals)..<semicolon]))
+    }
+
     private static func unquote(_ s: String) -> String {
-        let t = s.trimmingCharacters(in: .whitespaces)
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.hasPrefix("\"") && t.hasSuffix("\"") { return String(t.dropFirst().dropLast()) }
         if t.hasPrefix("'") && t.hasSuffix("'") { return String(t.dropFirst().dropLast()) }
         return t

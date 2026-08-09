@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: LPW4Z3BN69
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
@@ -28,3 +28,31 @@ targets:
       - path: Sources
       - path: Resources
         buildPhase: resources
+
+  DevOpsAssistantTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests
+      - path: Sources/Models/Project.swift
+      - path: Sources/Models/Credential.swift
+      - path: Sources/Services/VersionManager.swift
+      - path: Sources/Services/OnboardingService.swift
+      - path: Sources/Services/KeychainStore.swift
+      - path: Sources/Services/ShellRunner.swift
+      - path: Sources/Services/PortalSync.swift
+    settings:
+      base:
+        PRODUCT_NAME: DevOpsAssistantTests
+        PRODUCT_MODULE_NAME: DevOpsAssistantTests
+
+schemes:
+  DevOpsAssistant:
+    build:
+      targets:
+        DevOpsAssistant: all
+        DevOpsAssistantTests: [test]
+    test:
+      targets:
+        - DevOpsAssistantTests
