@@ -19,6 +19,7 @@ Native macOS app (SwiftUI) — a local release console for indie Apple developer
 | Cloudflare API token | keychain `devops-assistant-cloudflare` | `security find-generic-password -s devops-assistant-cloudflare -w` |
 | Apple app-specific pw | keychain `devops-assistant-apple-app-password` | `security find-generic-password -s devops-assistant-apple-app-password -w` |
 | .p12 export password | keychain `devops-assistant-p12-password` | `security find-generic-password -s devops-assistant-p12-password -w` |
+| GitLab (Synology) token | keychain `devops-assistant-gitlab-token` + git osxkeychain helper | `security find-generic-password -s devops-assistant-gitlab-token -w` (also stored for host `zqian24.synology.me:8010`) |
 
 These are machine-local (this Mac). If a secret is genuinely missing from the keychain,
 *then* surface it — otherwise proceed autonomously.
@@ -45,6 +46,10 @@ Gotchas already solved:
 2. Cloudflare Pages: `./scripts/deploy-pages.sh` (reads token from keychain, non-interactive safe).
 
 ## Repo notes
-- No `origin` remote — only `backup` (Synology). GitHub ops go through `gh` (API).
+- Dual remote: `origin` → GitHub (`git@github.com:vibeforge2014/devops-assistant.git`, SSH);
+  `backup` → GitLab on Synology (`https://zqian24.synology.me:8010/root/devops-assistant.git`).
+- GitLab auth + self-signed cert are configured globally: osxkeychain credential helper holds
+  the token, and `http.<host>.sslVerify=false` is set for the Synology host only.
+  So `git push origin` and `git push backup` both work with no extra flags.
 - `.gitignore` covers `*.p8 *.p12 .env .zcode/ .wrangler/ build/`.
 - Tests: `xcodebuild test -scheme DevOpsAssistant`.
