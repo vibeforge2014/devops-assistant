@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A live terminal-style console that mirrors the ShellRunner's output stream.
@@ -8,6 +9,7 @@ struct ConsolePanel: View {
     /// via environment) so each project/site owns an isolated console and
     /// concurrent operations in different views never cross-talk (M1).
     @ObservedObject var runner: ShellRunner
+    @State private var didCopy = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +23,18 @@ struct ConsolePanel: View {
                     Text("运行中")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
+                }
+                Button {
+                    copyLogs()
+                } label: {
+                    Label(didCopy ? "已复制" : "复制日志",
+                          systemImage: didCopy ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(runner.lines.isEmpty)
+                .help("复制全部日志")
+
+                if !runner.isRunning {
                     Button("清空") { runner.clear() }
                         .buttonStyle(.borderless)
                         .disabled(runner.lines.isEmpty)
@@ -34,21 +47,21 @@ struct ConsolePanel: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(runner.lines) { line in
-                            Text(line.text.isEmpty ? " " : line.text)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(color(for: line))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(line.id)
-                        }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(attributedLog)
+                            .font(.system(size: 12, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("console-bottom")
                     }
-                    .textSelection(.enabled)
                     .padding(8)
                 }
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.3))
                 .onChange(of: runner.lines.last?.id) { _, last in
-                    if let last { proxy.scrollTo(last, anchor: .bottom) }
+                    if last != nil { proxy.scrollTo("console-bottom", anchor: .bottom) }
                 }
             }
         }
@@ -60,6 +73,35 @@ struct ConsolePanel: View {
         case .meta: .secondary
         case .stdout: .primary
         case .stderr: .red.opacity(0.85)
+        }
+    }
+
+    private var plainLog: String {
+        runner.lines.map(\.text).joined(separator: "\n")
+    }
+
+    private var attributedLog: AttributedString {
+        var result = AttributedString()
+        for (index, line) in runner.lines.enumerated() {
+            var segment = AttributedString(line.text.isEmpty ? " " : line.text)
+            segment.foregroundColor = color(for: line)
+            result.append(segment)
+            if index < runner.lines.count - 1 {
+                result.append(AttributedString("\n"))
+            }
+        }
+        return result
+    }
+
+    private func copyLogs() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(plainLog, forType: .string)
+
+        didCopy = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            didCopy = false
         }
     }
 }

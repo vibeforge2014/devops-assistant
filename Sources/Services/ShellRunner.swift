@@ -21,6 +21,33 @@ struct RunResult {
     var succeeded: Bool { exitCode == 0 && !cancelled }
 }
 
+/// GUI apps inherit a very small PATH from launchd, which normally omits
+/// Homebrew and Ruby version-manager shims. Keep command resolution consistent
+/// with a developer terminal without running user shell startup scripts.
+enum DeveloperToolPath {
+    static func resolved(inheritedPath: String?,
+                         homeDirectory: String = NSHomeDirectory(),
+                         pathExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> String {
+        let preferred = [
+            "\(homeDirectory)/.local/share/mise/shims",
+            "\(homeDirectory)/.asdf/shims",
+            "\(homeDirectory)/.rbenv/shims",
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+        ].filter(pathExists)
+
+        let inherited = (inheritedPath ?? "")
+            .split(separator: ":")
+            .map(String.init)
+
+        var seen = Set<String>()
+        return (preferred + inherited)
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .joined(separator: ":")
+    }
+}
+
 /// Runs a shell command as a child `Process`, streaming stdout/stderr line by
 /// line to an observable log. Designed to wrap fastlane / xcodebuild / git —
 /// long-running, output-heavy commands the user wants to watch live.
@@ -92,6 +119,12 @@ final class ShellRunner: ObservableObject {
         if let cwd { proc.currentDirectoryURL = URL(fileURLWithPath: cwd) }
 
         var mergedEnv = ProcessInfo.processInfo.environment
+        // Commands launched with an argv array do not pass through a login
+        // shell, so a GUI-launched app would otherwise resolve /usr/bin/bundle
+        // (system Ruby 2.6) instead of the project's installed Bundler.
+        if env["PATH"] == nil {
+            mergedEnv["PATH"] = DeveloperToolPath.resolved(inheritedPath: mergedEnv["PATH"])
+        }
         mergedEnv.merge(env) { _, new in new }
         proc.environment = mergedEnv
 

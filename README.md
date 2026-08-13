@@ -1,10 +1,10 @@
 # VibeForge DevOps Assistant
 
-VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本地运维助手**。原生 macOS App,沉淀常用的构建、签名、公证、TestFlight/App Store 上传、发布页更新等运维操作。
+VibeForge 旗下 8 个 Apple 客户端应用（包含 DevOps Assistant 自身）+ Pages 站点矩阵的**本地运维助手**。原生 macOS App,沉淀常用的构建、签名、公证、TestFlight/App Store 上传、发布页更新等运维操作。
 
 ## 收录的项目
 
-**应用**(7):Tivon · Tellyra · ServerHub · ChargePilot · MinuteFlow · TuneSync · TailTalk
+**应用**(8):Tivon · Tellyra · ServerHub · ChargePilot · MinuteFlow · TuneSync · TailTalk · DevOps Assistant
 **站点**(8):各 App 的发布页 + Portal 门户
 
 ## 功能模块
@@ -18,7 +18,15 @@ VibeForge 旗下 7 个 Apple 客户端应用 + GitHub Pages 站点矩阵的**本
 | **一键发布** | 向导式串联:设版本 → 构建 → 签名 → (公证) → 上传 → 联动更新 Portal |
 | **发布预检** | 发布前检查路径/版本、Fastlane lane、Bundler、凭据、Git 状态与 Portal 映射 |
 | **凭证有效性** | 只读验证 ASC Apple 认证、本机分发证书、Match 仓库与解密密码,失败时引导补录 |
-| **发布页更新** | 批量 git pull → 编辑 → push,触发 GitHub Pages 自动部署 |
+| **发布页更新** | 批量 git pull → 编辑 → push,触发 Pages 自动部署 |
+
+## 官网部署
+
+DevOps Assistant 发布页使用 Cloudflare Pages 托管，静态输出目录为 `docs/`，地址为 [devops-assistant.pages.dev](https://devops-assistant.pages.dev/)。产品门户 `portal` 使用生产域名 [norelle.cc](https://norelle.cc/)。
+
+```bash
+npx wrangler pages deploy docs --project-name devops-assistant --branch main
+```
 | **发布历史** | 记录每次发布的版本/目标/结果,按应用筛选追溯(本地存储) |
 | **动态项目管理** | 在应用内新增、编辑、删除应用与站点，支持切换本地目录和完整 GitHub URL |
 

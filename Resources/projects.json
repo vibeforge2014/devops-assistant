@@ -3,7 +3,7 @@
     {
       "id": "tivon",
       "name": "Tivon",
-      "path": "~/Desktop/atvtool",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/atvtool.git",
       "platform": "ios",
       "scheme": "ATVTool",
@@ -22,7 +22,7 @@
     {
       "id": "tellyra",
       "name": "Tellyra",
-      "path": "~/Desktop/aptv-ios",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/aptv-ios.git",
       "platform": "ios",
       "scheme": "aptv",
@@ -41,7 +41,7 @@
     {
       "id": "serverhub",
       "name": "ServerHub",
-      "path": "~/Desktop/ServerCat-iOS",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/ServerCat-iOS.git",
       "platform": "ios",
       "scheme": "ServerCat",
@@ -60,7 +60,7 @@
     {
       "id": "chargepilot",
       "name": "ChargePilot",
-      "path": "~/Desktop/aidente",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/chargepilot.git",
       "platform": "macos",
       "scheme": "Aidente",
@@ -78,7 +78,7 @@
     {
       "id": "minuteflow",
       "name": "MinuteFlow",
-      "path": "~/Documents/会议助手/ios/MeetingAssistant",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/minuteflow-source.git",
       "platform": "ios",
       "scheme": "MeetingAssistant",
@@ -96,7 +96,7 @@
     {
       "id": "tunesync",
       "name": "TuneSync",
-      "path": "~/Desktop/TuneSync-iOS-Native",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/TuneSync-iOS.git",
       "platform": "ios",
       "scheme": "TuneSync",
@@ -115,7 +115,7 @@
     {
       "id": "tailtalk",
       "name": "TailTalk",
-      "path": "~/Desktop/TailTalk/TailTalk",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/tailtalk.git",
       "platform": "ios",
       "scheme": "TailTalk",
@@ -130,62 +130,80 @@
         "matchGitURL": "git@github.com:vibeforge2014/aptv-certs.git",
         "notarize": false
       }
+    },
+    {
+      "id": "devops-assistant",
+      "name": "DevOps Assistant",
+      "path": "",
+      "repositoryURL": "git@github.com:vibeforge2014/devops-assistant.git",
+      "platform": "macos",
+      "scheme": "DevOpsAssistant",
+      "bundleId": "com.vibeforge.DevOpsAssistant",
+      "versionSource": "project.yml",
+      "release": {
+        "engine": "native",
+        "betaLane": null,
+        "releaseLane": null,
+        "signingLane": null,
+        "signing": "developer-id",
+        "notarize": true
+      }
     }
   ],
   "sites": [
     {
       "id": "tivon-support",
       "name": "Tivon 发布页",
-      "path": "~/Desktop/atvtool/support-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/tivon-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tellyra-support",
       "name": "Tellyra 发布页",
-      "path": "~/Desktop/tellyra-support-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/tellyra-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "serverhub-support",
       "name": "ServerHub 发布页",
-      "path": "~/Desktop/serverhub-support-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/serverhub-support.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tailtalk-site",
       "name": "TailTalk 发布页",
-      "path": "~/Desktop/TailTalk/TailTalk-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/tailtalk-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "chargepilot-site",
       "name": "ChargePilot 发布页",
-      "path": "~/Desktop/chargepilot-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/chargepilot-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "meeting-assistant-site",
       "name": "MinuteFlow 发布页",
-      "path": "~/Desktop/meeting-assistant-site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/meeting-assistant-site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "tunesync-site",
       "name": "TuneSync 发布页",
-      "path": "~/Desktop/TuneSync-Site",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/TuneSync-Site.git",
       "deploy": "git-push-main"
     },
     {
       "id": "portal",
       "name": "门户 Portal",
-      "path": "~/.zcode/workspace/default/portal",
+      "path": "",
       "repositoryURL": "git@github.com:vibeforge2014/portal.git",
       "deploy": "gh-pages"
     }

@@ -28,6 +28,20 @@ struct ProjectManagementView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
                     }
+                    if let notice = catalog.rescanNotice {
+                        HStack {
+                            Label(notice, systemImage: "checkmark.circle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.green)
+                            Spacer()
+                            Button { catalog.dismissRescanNotice() } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(12)
+                        .background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                    }
                     header
                     if section == .apps { appList } else { siteList }
                 }
@@ -71,6 +85,11 @@ struct ProjectManagementView: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
+            Button {
+                catalog.rescanPaths()
+            } label: { Label("重新扫描路径", systemImage: "magnifyingglass") }
+                .buttonStyle(.bordered)
+                .help("自动重新定位已移动或丢失的项目目录")
             Button {
                 editor = ProjectEditor(value: section == .apps ? .app(nil) : .site(nil))
             } label: { Label("新增", systemImage: "plus") }

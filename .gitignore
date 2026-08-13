@@ -29,3 +29,4 @@ xcuserdata/
 .env
 .env.local
 .zcode/
+.wrangler/

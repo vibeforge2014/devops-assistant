@@ -170,10 +170,20 @@ struct CredentialValidationService {
                 let output = decrypt.output.lowercased()
                 let passwordRejected = output.contains("invalid password") ||
                     output.contains("bad decrypt") || output.contains("wrong final block")
-                let failureDetail = passwordRejected ? "仓库可访问，但密码无法解密" : "Fastlane 解密检查失败"
-                let failureGuidance = passwordRejected
-                    ? "确认该密码属于当前证书仓库；不同 Match 仓库可能使用不同密码。"
-                    : "仓库和密码未被判定为错误，请检查本机 Fastlane 配置后重试。"
+                let toolMissing = output.contains("no such file or directory") ||
+                    output.contains("not found") || output.contains("command not found")
+                let failureDetail: String
+                let failureGuidance: String
+                if toolMissing {
+                    failureDetail = "未找到 fastlane 命令"
+                    failureGuidance = "本机 PATH 未包含 fastlane。通过 Homebrew 安装 (brew install fastlane)，或确认 app 能解析到 /opt/homebrew/bin。"
+                } else if passwordRejected {
+                    failureDetail = "仓库可访问，但密码无法解密"
+                    failureGuidance = "确认该密码属于当前证书仓库；不同 Match 仓库可能使用不同密码。"
+                } else {
+                    failureDetail = "Fastlane 解密检查失败"
+                    failureGuidance = "仓库和密码未被判定为错误，请检查本机 Fastlane 配置后重试。"
+                }
                 return .init(id: "match-\(url)", title: "Match · \(slug)",
                              detail: decrypt.status == 0 ? "仓库与解密密码有效" : failureDetail,
                              guidance: decrypt.status == 0 ? nil : failureGuidance,
@@ -209,6 +219,13 @@ struct CredentialValidationService {
         process.arguments = arguments
         if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         var merged = ProcessInfo.processInfo.environment
+        // GUI apps inherit launchd's minimal PATH (no Homebrew). Mirror
+        // ShellRunner so PATH-resolved tools such as `fastlane` are found;
+        // without this the Match decrypt check fails with "command not found",
+        // which the password heuristics below misreport as a decryption error.
+        if env["PATH"] == nil {
+            merged["PATH"] = DeveloperToolPath.resolved(inheritedPath: merged["PATH"])
+        }
         merged.merge(env) { _, new in new }
         process.environment = merged
         let logURL = FileManager.default.temporaryDirectory

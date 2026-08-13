@@ -33,10 +33,15 @@ enum ProjectCatalogError: LocalizedError, Equatable {
 final class ProjectCatalog: ObservableObject {
     @Published private(set) var data = ProjectCatalogData(apps: [], sites: [])
     @Published private(set) var errorMessage: String?
+    /// Transient feedback from a manual path rescan, shown in project management.
+    @Published var rescanNotice: String?
 
     private let fileURL: URL
     private let bundledURL: URL?
     private let fileManager: FileManager
+    /// Roots handed to `ProjectLocator`. `nil` uses the locator's defaults; pass
+    /// `[]` in tests to keep them hermetic (no real-disk scanning).
+    private let relocationRoots: [String]?
 
     convenience init() {
         let fm = FileManager.default
@@ -52,10 +57,13 @@ final class ProjectCatalog: ObservableObject {
     }
 
     /// Injectable paths keep persistence and migration tests isolated.
-    init(fileURL: URL, bundledURL: URL?, fileManager: FileManager = .default) {
+    /// Pass `relocationRoots: []` to disable auto-relocation (hermetic tests).
+    init(fileURL: URL, bundledURL: URL?, fileManager: FileManager = .default,
+         relocationRoots: [String]? = nil) {
         self.fileURL = fileURL
         self.bundledURL = bundledURL
         self.fileManager = fileManager
+        self.relocationRoots = relocationRoots
         load()
     }
 
@@ -64,11 +72,14 @@ final class ProjectCatalog: ObservableObject {
         if fileManager.fileExists(atPath: fileURL.path) {
             do {
                 data = try decode(from: fileURL)
+                relocateIfNeeded()
+                return
             } catch {
                 errorMessage = "用户项目配置无法读取，已临时使用内置清单：\(error.localizedDescription)"
                 loadBundledWithoutOverwriting()
+                relocateIfNeeded()
+                return
             }
-            return
         }
 
         guard let bundledURL else {
@@ -83,6 +94,46 @@ final class ProjectCatalog: ObservableObject {
         } catch {
             errorMessage = "内置项目清单无法读取：\(error.localizedDescription)"
         }
+        relocateIfNeeded()
+    }
+
+    /// Re-evaluates every project path and repoints any that are empty or have
+    /// gone stale (the checkout moved). Intended for the manual "rescan" button;
+    /// also runs automatically at the end of `load()`.
+    func rescanPaths() {
+        let relocated = relocateIfNeeded()
+        rescanNotice = relocated > 0
+            ? "已重新定位 \(relocated) 个项目路径"
+            : "所有项目路径均有效"
+    }
+
+    /// Clears the transient rescan banner.
+    func dismissRescanNotice() { rescanNotice = nil }
+
+    /// Repoints stale/empty paths via `ProjectLocator` and, when anything moved,
+    /// persists the updated catalog. Best-effort: a persist failure never throws
+    /// or discards the in-memory data. Returns the number of paths relocated.
+    @discardableResult
+    private func relocateIfNeeded() -> Int {
+        let locator = ProjectLocator(roots: relocationRoots ?? ProjectLocator.defaultRoots,
+                                     fileManager: fileManager)
+        var moved = 0
+        let apps = data.apps.map { app -> AppProject in
+            guard let relocated = locator.relocate(app) else { return app }
+            moved += 1
+            return relocated
+        }
+        let sites = data.sites.map { site -> SiteProject in
+            guard let relocated = locator.relocate(site) else { return site }
+            moved += 1
+            return relocated
+        }
+        guard moved > 0 else { return 0 }
+        let updated = ProjectCatalogData(apps: apps, sites: sites)
+        do { try persist(updated) }
+        catch { errorMessage = error.localizedDescription }
+        data = updated
+        return moved
     }
 
     var apps: [AppProject] { data.apps }

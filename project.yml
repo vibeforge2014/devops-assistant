@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.2.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.2.1"
+    CURRENT_PROJECT_VERSION: "4"
     DEVELOPMENT_TEAM: LPW4Z3BN69
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
@@ -44,6 +44,7 @@ targets:
       - path: Sources/Services/ShellRunner.swift
       - path: Sources/Services/PortalSync.swift
       - path: Sources/Services/ProjectCatalog.swift
+      - path: Sources/Services/ProjectLocator.swift
       - path: Sources/Services/GitRemoteService.swift
     settings:
       base:
