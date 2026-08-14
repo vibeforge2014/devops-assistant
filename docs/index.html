@@ -59,11 +59,11 @@
     <nav><div class="brand"><span class="mark">⌘</span>DevOps Assistant</div><a class="github" href="https://github.com/vibeforge2014/devops-assistant">GitHub ↗</a></nav>
     <main>
       <section class="hero">
-        <div class="eyebrow"><span class="dot"></span>v1.2.1 · 已通过 Apple 公证</div>
+        <div class="eyebrow" id="version-badge"><span class="dot"></span>v1.2.1 · 已通过 Apple 公证</div>
         <h1>把发布流程，<br><span>收进一台 Mac。</span></h1>
         <p class="lead">为独立 Apple 开发者打造的本地发布控制台。构建、签名、公证、TestFlight、Pages 与项目管理，一处完成。</p>
         <div class="actions">
-          <a class="button primary" href="https://github.com/vibeforge2014/devops-assistant/releases/download/v1.2.1/DevOps-Assistant-1.2.1.dmg">↓ 下载 macOS 安装包</a>
+          <a class="button primary" id="download-button" href="https://github.com/vibeforge2014/devops-assistant/releases/download/v1.2.1/DevOps-Assistant-1.2.1.dmg">↓ 下载 macOS 安装包</a>
           <a class="button secondary" href="https://github.com/vibeforge2014/devops-assistant">查看源码</a>
         </div>
         <div class="meta">macOS 14+ · Apple Silicon 与 Intel · Developer ID 签名及 Apple 公证</div>
@@ -88,7 +88,22 @@
 
       <section class="install"><div><h2>三步开始</h2><p>下载的是通用架构、已签名并通过 Apple 公证的 DMG。</p></div><ol class="steps"><li>打开下载的 DMG</li><li>将 DevOps Assistant 拖入“应用程序”</li><li>启动并配置本机发布凭据</li></ol></section>
     </main>
-    <footer><span>© 2026 VibeForge</span><span>SHA-256: <code>9e95adb553038d6adec12c5a8ea67b696b3a757d8c64470338004bd94b1839b0</code></span></footer>
+    <footer><span>© 2026 VibeForge</span><span>SHA-256: <code id="footer-sha">9e95adb553038d6adec12c5a8ea67b696b3a757d8c64470338004bd94b1839b0</code></span></footer>
   </div>
+  <script>
+    // The release flow (ReleasePublisher) writes version.json on every publish;
+    // the page reads it so the badge/download link/sha update with no hand-edit.
+    // Falls back to the static markup baked into this file if it's absent.
+    fetch("version.json", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject() })
+      .then(function (v) {
+        if (v.version) document.getElementById("version-badge").innerHTML =
+          '<span class="dot"></span>v' + v.version + " · 已通过 Apple 公证";
+        var dl = document.getElementById("download-button");
+        if (v.url) dl.href = v.url;
+        if (v.sha256) document.getElementById("footer-sha").textContent = v.sha256;
+      })
+      .catch(function () { /* keep baked-in defaults */ });
+  </script>
 </body>
 </html>

@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.2.1"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "1.3.0"
+    CURRENT_PROJECT_VERSION: "5"
     DEVELOPMENT_TEAM: LPW4Z3BN69
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
@@ -46,6 +46,8 @@ targets:
       - path: Sources/Services/ProjectCatalog.swift
       - path: Sources/Services/ProjectLocator.swift
       - path: Sources/Services/GitRemoteService.swift
+      - path: Sources/Services/CredentialValidationService.swift
+      - path: Sources/Services/ReleasePublisher.swift
     settings:
       base:
         PRODUCT_NAME: DevOpsAssistantTests

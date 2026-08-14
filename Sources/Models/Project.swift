@@ -94,6 +94,32 @@ struct AppProject: Codable, Identifiable, Equatable {
     var existsOnDisk: Bool {
         FileManager.default.fileExists(atPath: resolvedPath)
     }
+
+    /// The `owner/name` GitHub slug derived from `repositoryURL`, or nil when
+    /// the repo is not on GitHub. Used to publish a GitHub Release for the
+    /// macOS distribution target.
+    var releaseRepoSlug: String? {
+        AppProject.githubSlug(from: repositoryURL)
+    }
+
+    /// Parse `owner/name` out of any common GitHub clone URL form; nil for
+    /// non-GitHub hosts (GitLab/Bitbucket/self-hosted) so we never mis-publish.
+    static func githubSlug(from url: String) -> String? {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().contains("github.com") else { return nil }
+        var path = trimmed
+        if let scp = trimmed.range(of: "github.com:") {       // git@github.com:owner/name.git
+            path = String(trimmed[scp.upperBound...])
+        } else if let host = trimmed.range(of: "github.com/") { // https://github.com/owner/name(.git)
+            path = String(trimmed[host.upperBound...])
+        } else {
+            return nil
+        }
+        if path.hasSuffix(".git") { path.removeLast(4) }
+        path = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let parts = path.split(separator: "/")
+        return parts.count >= 2 ? "\(parts[0])/\(parts[1])" : nil
+    }
 }
 
 /// One GitHub Pages site (support/release page) in the matrix.

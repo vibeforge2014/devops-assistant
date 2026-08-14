@@ -35,9 +35,10 @@ enum ReleaseStep: String, CaseIterable, Identifiable {
     case setVersion    // set/bump MARKETING_VERSION + CURRENT_PROJECT_VERSION
     case build         // xcodegen + xcodebuild archive
     case sign          // match / sigh / Developer ID signing
-    case notarize      // macOS only: notarytool submit + staple
+    case notarize      // macOS only: notarytool submit + staple (+ DMG build/export)
     case uploadBeta    // TestFlight (fastlane beta / pilot)
     case uploadRelease // App Store (fastlane release / deliver)
+    case publishRelease // GitHub Release: upload notarized DMG + SHA256 + notes
     case updatePages   // sync version info to GitHub Pages site + portal
 
     var id: String { rawValue }
@@ -50,6 +51,7 @@ enum ReleaseStep: String, CaseIterable, Identifiable {
         case .notarize: "Apple 公证"
         case .uploadBeta: "上传 TestFlight"
         case .uploadRelease: "上传 App Store"
+        case .publishRelease: "发布 GitHub Release"
         case .updatePages: "更新发布页"
         }
     }
@@ -62,6 +64,7 @@ enum ReleaseStep: String, CaseIterable, Identifiable {
         case .notarize: "shield.lefthalf.filled"
         case .uploadBeta: "paperplane"
         case .uploadRelease: "shippingbox"
+        case .publishRelease: "tag.circle"
         case .updatePages: "globe"
         }
     }

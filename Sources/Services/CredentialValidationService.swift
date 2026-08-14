@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum CredentialValidationStatus: Equatable {
     case passed, warning, failed
@@ -18,6 +19,36 @@ struct CredentialValidationService {
     static func validate(catalog: ProjectCatalogData) async -> [CredentialValidationResult] {
         let snapshot = Snapshot(catalog: catalog)
         return await Task.detached(priority: .userInitiated) { snapshot.validate() }.value
+    }
+
+    /// Build an App Store Connect ES256 JWT directly from .p8 key material.
+    /// Returns nil if the PEM can't be loaded as a P-256 key (malformed / wrong
+    /// type). Replaces the deprecated `xcrun altool --generate-jwt`. Exposed for
+    /// tests and reuse by other services.
+    static func makeES256JWT(keyContent: String, keyID: String, issuerID: String) -> String? {
+        let privateKey: P256.Signing.PrivateKey
+        do {
+            privateKey = try P256.Signing.PrivateKey(pemRepresentation: keyContent)
+        } catch { return nil }
+        let header = #"{"alg":"ES256","kid":"\#(keyID)","typ":"JWT"}"#
+        let now = Int(Date().timeIntervalSince1970)
+        let payload = #"{"iss":"\#(issuerID)","iat":\#(now),"exp":\#(now + 1200),"aud":"appstoreconnect-v1"}"#
+        let signingInput = "\(b64url(header)).\(b64url(payload))"
+        guard let signature = try? privateKey.signature(for: Data(signingInput.utf8)) else {
+            return nil
+        }
+        return "\(signingInput).\(b64url(signature.rawRepresentation))"
+    }
+
+    private static func b64url(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func b64url(_ string: String) -> String {
+        b64url(Data(string.utf8))
     }
 
     private struct Snapshot: @unchecked Sendable {
@@ -58,27 +89,13 @@ struct CredentialValidationService {
                              detail: "缺失或格式不正确", guidance: "导入 AuthKey_XXXXXXXXXX.p8，并填写 10 位 Key ID 与 Issuer UUID。",
                              status: .failed)
             }
-            guard let temp = makeKeyFile(content: keyContent, keyID: keyID) else {
+            // Generate the ASC JWT natively (ES256) instead of the deprecated
+            // `xcrun altool --generate-jwt`. Loading the key via CryptoKit also
+            // validates its integrity, replacing the old `openssl pkey` parse.
+            guard let token = CredentialValidationService.makeES256JWT(keyContent: keyContent,
+                                                                        keyID: keyID, issuerID: issuerID) else {
                 return .init(id: "asc", title: "App Store Connect API Key",
-                             detail: "无法创建临时验证文件", guidance: "重新导入 .p8 文件。", status: .failed)
-            }
-            defer { try? FileManager.default.removeItem(at: temp.deletingLastPathComponent()) }
-            // macOS ships LibreSSL, whose `openssl pkey` command does not
-            // support OpenSSL 3's `-check` flag (it interprets "check" as an
-            // unknown cipher). Parsing the key with `-noout` is the portable
-            // local integrity check; JWT generation and Apple's read-only API
-            // request below verify that the key is also usable and authorized.
-            let parse = command("/usr/bin/openssl", ["pkey", "-in", temp.path, "-noout"])
-            guard parse.status == 0 else {
-                return .init(id: "asc", title: "App Store Connect API Key",
-                             detail: "私钥内容无法解析", guidance: "请使用 App Store Connect 下载的原始 .p8 文件。", status: .failed)
-            }
-            let generated = command("/usr/bin/xcrun", ["altool", "--generate-jwt",
-                "--apiKey", keyID, "--apiIssuer", issuerID, "--p8-file-path", temp.path], timeout: 20)
-            guard generated.status == 0,
-                  let token = extractJWT(from: generated.output) else {
-                return .init(id: "asc", title: "App Store Connect API Key",
-                             detail: "无法使用私钥生成认证令牌", guidance: "确认 Key ID 与 .p8 文件匹配。", status: .failed)
+                             detail: "私钥内容无法解析或签名失败", guidance: "请使用 App Store Connect 下载的原始 .p8 文件，并确认 Key ID 匹配。", status: .failed)
             }
             // A read-only apps listing validates the JWT against Apple without
             // creating builds or changing App Store Connect state.
@@ -92,25 +109,6 @@ struct CredentialValidationService {
             return .init(id: "asc", title: "App Store Connect API Key",
                          detail: "Apple 认证失败（HTTP \(remote.output.trimmingCharacters(in: .whitespacesAndNewlines))）",
                          guidance: "确认 Key ID、Issuer ID 属于同一把有效密钥，且角色至少为 App Manager。", status: .failed)
-        }
-
-        /// `altool --generate-jwt` writes explanatory text and the JWT to the
-        /// same stream. Some explanatory tokens also contain two periods, so
-        /// merely counting segments can select the wrong value and cause a
-        /// misleading HTTP 401. A JWT is exactly three non-empty Base64URL
-        /// segments separated by periods.
-        private func extractJWT(from output: String) -> String? {
-            output.split(whereSeparator: { $0.isWhitespace })
-                .map(String.init)
-                .first { candidate in
-                    let segments = candidate.split(separator: ".", omittingEmptySubsequences: false)
-                    guard segments.count == 3 else { return false }
-                    return segments.allSatisfy { segment in
-                        !segment.isEmpty && segment.allSatisfy { character in
-                            character.isLetter || character.isNumber || character == "-" || character == "_"
-                        }
-                    }
-                }
         }
 
         private func validateTeam() -> CredentialValidationResult {
@@ -198,18 +196,6 @@ struct CredentialValidationService {
                          guidance: present ? nil : "仅在需要 Apple ID 登录的旧脚本中录入 Apple ID 与 App 专用密码。",
                          status: .warning)
         }
-    }
-
-    private static func makeKeyFile(content: String, keyID: String) -> URL? {
-        let fm = FileManager.default
-        let dir = fm.temporaryDirectory.appendingPathComponent("vibeforge-validation-\(UUID().uuidString)", isDirectory: true)
-        let url = dir.appendingPathComponent("AuthKey_\(keyID).p8")
-        do {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-            try Data(content.utf8).write(to: url, options: .atomic)
-            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-            return url
-        } catch { try? fm.removeItem(at: dir); return nil }
     }
 
     private static func command(_ executable: String, _ arguments: [String], cwd: String? = nil,

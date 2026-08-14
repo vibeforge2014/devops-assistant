@@ -17,6 +17,7 @@ struct OnboardingView: View {
     @State private var validating = false
     @State private var validationResults: [CredentialValidationResult] = []
     @State private var showKeyImporter = false
+    @State private var importError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,6 +135,13 @@ struct OnboardingView: View {
         .fileImporter(isPresented: $showKeyImporter, allowedContentTypes: [.data]) { result in
             importAPIKey(result)
         }
+        .alert("无法导入 API Key", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } })) {
+            Button("好", role: .cancel) { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
     }
 
     private func importNow() {
@@ -155,11 +163,22 @@ struct OnboardingView: View {
     }
 
     private func importAPIKey(_ result: Result<URL, Error>) {
-        guard case .success(let url) = result else { return }
+        guard case .success(let url) = result else {
+            importError = "无法读取所选文件"
+            return
+        }
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
-        guard let content = try? String(contentsOf: url, encoding: .utf8),
-              content.contains("BEGIN PRIVATE KEY") else { return }
+        // Surface an invalid selection instead of failing silently — picking the
+        // wrong file previously did nothing visible (unlike SettingsView).
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            importError = "无法读取文件内容"
+            return
+        }
+        guard content.contains("BEGIN PRIVATE KEY") else {
+            importError = "所选文件不是有效的私钥（缺少 BEGIN PRIVATE KEY）。请选择 App Store Connect 下载的 AuthKey_XXXXXXXXXX.p8。"
+            return
+        }
         KeychainStore.set(content, for: .ascAPIKeyContent)
         let name = url.deletingPathExtension().lastPathComponent
         if name.hasPrefix("AuthKey_") { keyID = String(name.dropFirst("AuthKey_".count)) }

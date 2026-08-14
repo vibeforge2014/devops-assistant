@@ -28,9 +28,14 @@ final class NotaryService {
     }
 
     /// Notarize an artifact (dmg/pkg/zip) and staple the ticket.
+    /// Owns the temp ASC-key lifecycle: notaryEnv() materializes a 0600 temp
+    /// .p8 and this method removes it once the run finishes, so callers that
+    /// invoke `notarize` directly (e.g. the DMG distribution path) don't leak
+    /// the private key the way the old `distribute`-only cleanup did.
     @discardableResult
     func notarize(artifact: String, stapleApp: String? = nil) async -> RunResult {
         let env = notaryEnv()
+        defer { cleanupTempKey() }
         runner.log("▶ Apple 公证 — \(artifact)")
         var args = [artifact]
         if let stapleApp { args.append(stapleApp) }
@@ -79,10 +84,10 @@ final class NotaryService {
                 env["NOTARYTOOL_KEY"] = tmp
                 env["NOTARYTOOL_KEY_ID"] = keyID
                 env["NOTARYTOOL_ISSUER"] = issuer
-                // Clean up after this run completes (best-effort).
-                Task { @MainActor in
-                    self.pendingCleanup = tmp
-                }
+                // Record for cleanup synchronously. The previous version
+                // scheduled this on a detached Task that could land AFTER the
+                // caller's `defer { cleanupTempKey() }`, leaking the .p8.
+                pendingCleanup = tmp
             } catch {
                 #if DEBUG
                 print("[NotaryService] failed to write ASC key for notarize: \(error)")

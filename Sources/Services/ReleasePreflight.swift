@@ -63,6 +63,21 @@ struct ReleasePreflight {
         checks.append(contentsOf: engineChecks(app: app, target: target))
         checks.append(contentsOf: credentialChecks(app: app, target: target))
 
+        // When the macOS flow will publish a GitHub Release, confirm gh is
+        // installed and authenticated up front so the failure is visible before
+        // a long build/notarize runs.
+        if target == .macDistribution, app.releaseRepoSlug != nil {
+            let gh = command("/usr/bin/env", ["gh", "auth", "status"], cwd: nil)
+            checks.append(.init(
+                id: "gh",
+                title: "GitHub Release 发布",
+                detail: gh.status == 0
+                    ? "gh 已认证 → \(app.releaseRepoSlug!)"
+                    : "gh 未安装或未登录（运行 `gh auth login`）",
+                status: gh.status == 0 ? .passed : .failed
+            ))
+        }
+
         if fm.fileExists(atPath: "\(app.resolvedPath)/.git") {
             let git = command("/usr/bin/git", ["status", "--porcelain"], cwd: app.resolvedPath)
             let dirty = !git.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

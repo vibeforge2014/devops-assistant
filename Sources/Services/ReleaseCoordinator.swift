@@ -21,6 +21,12 @@ final class ReleaseCoordinator: ObservableObject {
     private var fastlane: FastlaneRunner { FastlaneRunner(runner: runner) }
     private var localTestFlight: LocalTestFlightService { LocalTestFlightService(runner: runner) }
     private var notary: NotaryService { NotaryService(runner: runner) }
+    private var packaging: ArtifactPackagingService { ArtifactPackagingService(runner: runner) }
+    private var publisher: ReleasePublisher { ReleasePublisher(runner: runner) }
+
+    /// Path of the notarized DMG produced by the notarize step, handed off to
+    /// the publish step. Cleared at the start of each run.
+    private var producedDMG: String?
 
     init(app: AppProject, runner: ShellRunner, catalog: ProjectCatalog, historyStore: HistoryStore) {
         self.app = app
@@ -62,7 +68,12 @@ final class ReleaseCoordinator: ObservableObject {
         case .appStore:
             return [.setVersion, .build, .sign, .uploadRelease, .updatePages]
         case .macDistribution:
-            return [.setVersion, .build, .sign, .notarize, .updatePages]
+            // Build a notarized, stapled DMG, then (for GitHub-hosted projects)
+            // publish it as a GitHub Release. The page sync runs last.
+            var steps: [ReleaseStep] = [.setVersion, .build, .sign, .notarize]
+            if app.releaseRepoSlug != nil { steps.append(.publishRelease) }
+            steps.append(.updatePages)
+            return steps
         }
     }
 
@@ -91,6 +102,7 @@ final class ReleaseCoordinator: ObservableObject {
         for step in steps { stepStates[step] = .idle }
         completedSteps.removeAll()
         cancellationRequested = false
+        producedDMG = nil
 
         for step in steps {
             guard !cancellationRequested else {
@@ -121,6 +133,8 @@ final class ReleaseCoordinator: ObservableObject {
                 ok = await runUpload(target: .testFlight)
             case .uploadRelease:
                 ok = await runUpload(target: .appStore)
+            case .publishRelease:
+                ok = await runPublishRelease()
             case .updatePages:
                 ok = await runUpdatePages()
             }
@@ -248,13 +262,28 @@ final class ReleaseCoordinator: ObservableObject {
             runner.log("ℹ 该项目无需公证")
             return true
         }
-        let bundle = "\(build.archivePath(for: app))/Products/Applications/\(app.scheme).app"
-        guard FileManager.default.fileExists(atPath: bundle) else {
-            runner.log("✗ 找不到 .app: \(bundle)")
+        // Build a distributable, notarized, stapled DMG from the archive the
+        // build step already produced: export re-signed with Developer ID →
+        // DMG → sign DMG → notarize + staple. ZIP-notarizing the raw .app (the
+        // old path) cannot carry a staple ticket and left no shippable artifact.
+        let exported = await packaging.exportDeveloperID(app: app)
+        guard let appBundle = exported.path, exported.succeeded else { return false }
+        let dmg = await packaging.buildSignedDMG(app: app, appBundle: appBundle)
+        guard let dmgPath = dmg.path, dmg.succeeded else { return false }
+        let notarized = await notary.notarize(artifact: dmgPath)
+        guard notarized.succeeded else { return false }
+        producedDMG = dmgPath
+        return true
+    }
+
+    /// Publish the notarized DMG produced by the notarize step as a GitHub
+    /// Release (and, for self-hosted landing pages, sync + redeploy it).
+    private func runPublishRelease() async -> Bool {
+        guard let dmgPath = producedDMG else {
+            runner.log("✗ 公证步骤未产出 DMG，无法发布")
             return false
         }
-        let service = NotaryService(runner: runner)
-        return (await service.distribute(app: app, appBundle: bundle)).succeeded
+        return await publisher.publish(app: app, dmgPath: dmgPath)
     }
 
     private func runUpload(target: ReleaseTarget) async -> Bool {
