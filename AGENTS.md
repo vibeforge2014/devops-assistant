@@ -20,6 +20,13 @@ Native macOS app (SwiftUI) — a local release console for indie Apple developer
 | Apple app-specific pw | keychain `devops-assistant-apple-app-password` | `security find-generic-password -s devops-assistant-apple-app-password -w` |
 | .p12 export password | keychain `devops-assistant-p12-password` | `security find-generic-password -s devops-assistant-p12-password -w` |
 | GitLab (Synology) token | keychain `devops-assistant-gitlab-token` + git osxkeychain helper | `security find-generic-password -s devops-assistant-gitlab-token -w` (also stored for host `zqian24.synology.me:8010`) |
+| Match 仓库密码 | keychain `devops-assistant-match-password` (archive) + in-app item `com.vibeforge.devops-assistant` / `vibeforge.devops.match_password` | `security find-generic-password -s devops-assistant-match-password -w` |
+| Paddle sandbox key | keychain `devops-assistant-paddle-sandbox-key` | `security find-generic-password -s devops-assistant-paddle-sandbox-key -w` |
+
+All items above were archived into the keychain on 2026-08-20. The original
+plaintext notes are kept (by owner's choice) at
+`~/Desktop/apple app凭证/issue_id&key_id&app专用密码.md` — reference only,
+do not copy values from there when the keychain works.
 
 These are machine-local (this Mac). If a secret is genuinely missing from the keychain,
 *then* surface it — otherwise proceed autonomously.
