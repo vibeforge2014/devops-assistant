@@ -69,6 +69,10 @@ struct VersionManager {
         guard let text = try? String(contentsOfFile: "\(dir)/project.yml", encoding: .utf8) else {
             return nil
         }
+        return parseFromProjectYml(text)
+    }
+
+    private static func parseFromProjectYml(_ text: String) -> VersionPair? {
         guard let marketing = capture(from: text, pattern: ymlKeyPattern, group: 4),
               let build = capture(from: text, pattern: ymlBuildPattern, group: 4) else {
             return nil
@@ -78,11 +82,15 @@ struct VersionManager {
 
     private static func writeToProjectYml(_ dir: String, version: VersionPair) -> Bool {
         let url = URL(fileURLWithPath: "\(dir)/project.yml")
-        guard var text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        text = replaceYmlCaptured(text, pattern: ymlBuildPattern, newValue: version.build)
-        text = replaceYmlCaptured(text, pattern: ymlKeyPattern, newValue: version.marketing)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var updated = replaceYmlCaptured(text, pattern: ymlBuildPattern, newValue: version.build)
+        updated = replaceYmlCaptured(updated, pattern: ymlKeyPattern, newValue: version.marketing)
+        // A no-op regex pass (no matching lines) must not report success: the
+        // release pipeline's setVersion step would believe the version was
+        // set and ship the OLD one. Only persist what parses back identical.
+        guard let parsed = parseFromProjectYml(updated), parsed == version else { return false }
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try updated.write(to: url, atomically: true, encoding: .utf8)
             return true
         } catch {
             return false
@@ -124,6 +132,10 @@ struct VersionManager {
     private static func readFromPbxproj(_ dir: String) -> VersionPair? {
         guard let url = pbxprojURL(dir),
               let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return parseFromPbxproj(text)
+    }
+
+    private static func parseFromPbxproj(_ text: String) -> VersionPair? {
         // Simpler read regex: find any (non-comment) assignment. We match the
         // key followed by = …; on its own line, which comments never satisfy.
         guard let marketingSegment = capture(from: text, pattern: pbxKeyPattern, group: 3),
@@ -137,11 +149,14 @@ struct VersionManager {
 
     private static func writeToPbxproj(_ dir: String, version: VersionPair) -> Bool {
         guard let url = pbxprojURL(dir),
-              var text = try? String(contentsOf: url, encoding: .utf8) else { return false }
-        text = replaceCaptured(text, pattern: pbxBuildPattern, newValue: version.build)
-        text = replaceCaptured(text, pattern: pbxKeyPattern, newValue: version.marketing)
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var updated = replaceCaptured(text, pattern: pbxBuildPattern, newValue: version.build)
+        updated = replaceCaptured(updated, pattern: pbxKeyPattern, newValue: version.marketing)
+        // Same invariant as writeToProjectYml: refuse to persist (and to
+        // claim success) when the regex pass didn't produce the target.
+        guard let parsed = parseFromPbxproj(updated), parsed == version else { return false }
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try updated.write(to: url, atomically: true, encoding: .utf8)
             return true
         } catch {
             return false

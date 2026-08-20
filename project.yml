@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.2.1"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "1.4.0"
+    CURRENT_PROJECT_VERSION: "6"
     DEVELOPMENT_TEAM: LPW4Z3BN69
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
@@ -38,14 +38,27 @@ targets:
       - path: Tests
       - path: Sources/Models/Project.swift
       - path: Sources/Models/Credential.swift
+      - path: Sources/Models/ReleaseRecord.swift
+      - path: Sources/Models/AppStoreInfo.swift
+      - path: Sources/Models/AppUpdateInfo.swift
+      - path: Sources/Models/PipelineStepState.swift
       - path: Sources/Services/VersionManager.swift
       - path: Sources/Services/OnboardingService.swift
       - path: Sources/Services/KeychainStore.swift
       - path: Sources/Services/ShellRunner.swift
+      - path: Sources/Services/RunLogStore.swift
       - path: Sources/Services/PortalSync.swift
       - path: Sources/Services/ProjectCatalog.swift
       - path: Sources/Services/ProjectLocator.swift
       - path: Sources/Services/GitRemoteService.swift
+      - path: Sources/Services/CredentialMaterializer.swift
+      - path: Sources/Services/CredentialMigrationService.swift
+      - path: Sources/Services/ReleaseFormatting.swift
+      - path: Sources/Services/HistoryStore.swift
+      - path: Sources/Services/PagesDeployer.swift
+      - path: Sources/Services/ProcessCapture.swift
+      - path: Sources/Services/SiteStatusService.swift
+      - path: Sources/Services/SitePublishCoordinator.swift
     settings:
       base:
         PRODUCT_NAME: DevOpsAssistantTests

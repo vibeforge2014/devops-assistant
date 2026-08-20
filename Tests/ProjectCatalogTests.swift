@@ -60,7 +60,13 @@ final class ProjectCatalogTests: XCTestCase {
 
         XCTAssertEqual(catalog.apps.map(\.id), ["fixture"])
         XCTAssertNotNil(catalog.errorMessage)
-        XCTAssertEqual(try Data(contentsOf: userURL), corrupt)
+        // The corrupt original is preserved as a .corrupt sibling instead of
+        // sitting where a later rescan persist would overwrite it with the
+        // bundled fallback.
+        let dir = userURL.deletingLastPathComponent()
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        let backup = try XCTUnwrap(siblings.first { $0.hasPrefix("projects.json.corrupt-") })
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(backup)), corrupt)
     }
 
     func testPersistenceFailureDoesNotPublishMutation() throws {

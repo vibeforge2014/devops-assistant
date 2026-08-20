@@ -5,6 +5,11 @@ import SwiftUI
 /// (notarize) → upload → update pages. Runs steps sequentially and STOPS at
 /// the first failure, reporting which step and why. Each step is driven
 /// through the shared ShellRunner so output streams live into the console.
+///
+/// A failed run keeps enough state (`lastFailedRun` + `completedSteps`) that
+/// `retry()` can resume from the failed step instead of redoing — and
+/// re-bumping — everything that already succeeded. Every run is mirrored to a
+/// log file on disk so failures remain investigatable after the app quits.
 @MainActor
 final class ReleaseCoordinator: ObservableObject {
     @Published private(set) var stepStates: [ReleaseStep: StepState] = [:]
@@ -12,10 +17,40 @@ final class ReleaseCoordinator: ObservableObject {
     @Published private(set) var completedSteps: [ReleaseStep] = []
     @Published var cancellationRequested = false
 
+    /// Outcome of the most recent run attempt (drives the wizard's status
+    /// line and retry affordances).
+    @Published private(set) var lastOutcome: RunOutcome?
+    /// The target/version of the most recent failed attempt, when a retry
+    /// would have something to resume from.
+    @Published private(set) var lastFailedRun: FailedRun?
+    /// Target currently (or most recently) executed — the wizard reopens on
+    /// it when brought back over a backgrounded run.
+    @Published private(set) var activeTarget: ReleaseTarget?
+    /// Step executing right now (nil between runs / before the first step).
+    /// Drives the wizard's "运行中 · <step>" status line.
+    @Published private(set) var currentStep: ReleaseStep?
+    /// Wall-clock seconds each step took, for its trailing duration label.
+    /// A retry keeps the previous attempt's timings for skipped steps.
+    @Published private(set) var stepDurations: [ReleaseStep: TimeInterval] = [:]
+    /// When the current attempt started (drives the header's ticking timer).
+    @Published private(set) var runStartedAt: Date?
+    /// Total seconds of the last finished attempt (set when the defer runs).
+    @Published private(set) var runTotalElapsed: TimeInterval?
+
+    /// Fired once per run attempt with its final outcome. Wired by
+    /// `ReleaseCenter` to post a user notification; keeps this class free of
+    /// UserNotifications concerns.
+    var onFinish: (@MainActor (RunOutcome, ReleaseTarget, VersionPair?) -> Void)?
+
     let runner: ShellRunner
     private let app: AppProject
     private let catalog: ProjectCatalog
     private let historyStore: HistoryStore
+
+    /// Log file the current/last attempt wrote to (nil when logging to disk
+    /// failed; the run proceeds console-only rather than aborting). Readable
+    /// so the wizard can offer a "打开日志" jump straight to the file.
+    private(set) var logSinkURL: URL?
 
     private var build: BuildService { BuildService(runner: runner) }
     private var fastlane: FastlaneRunner { FastlaneRunner(runner: runner) }
@@ -29,25 +64,18 @@ final class ReleaseCoordinator: ObservableObject {
         self.historyStore = historyStore
     }
 
-    enum StepState: Equatable {
-        case idle, running, succeeded, failed(String)
+    // Both types used to be nested here; they were lifted to top level when
+    // site publishing needed the same step/outcome vocabulary. Aliases keep
+    // existing signatures (e.g. ReleaseCenter's onFinish wiring) unchanged.
+    typealias StepState = PipelineStepState
+    typealias RunOutcome = PipelineOutcome
 
-        var icon: String {
-            switch self {
-            case .idle: "circle"
-            case .running: "arrow.triangle.2.circlepath"
-            case .succeeded: "checkmark.circle.fill"
-            case .failed: "xmark.circle.fill"
-            }
-        }
-        var tint: Color {
-            switch self {
-            case .idle: .secondary
-            case .running: .blue
-            case .succeeded: .green
-            case .failed: .red
-            }
-        }
+    struct FailedRun: Equatable {
+        let target: ReleaseTarget
+        /// The version pair the failed attempt shipped (explicit or read
+        /// back from disk after the bump) — a retry must reuse it, never
+        /// bump again.
+        let version: VersionPair?
     }
 
     /// The steps that apply for the given target. Every target ends by syncing
@@ -71,6 +99,8 @@ final class ReleaseCoordinator: ObservableObject {
         for key in stepStates.keys { stepStates[key] = .idle }
     }
 
+    var canRetry: Bool { lastFailedRun != nil && !isRunning }
+
     /// Run the full pipeline for a target, with a version to bump to
     /// (optional — if nil, only the build number is bumped). Stops at the first
     /// failing step — EXCEPT `.updatePages`, which is best-effort: the release
@@ -78,27 +108,111 @@ final class ReleaseCoordinator: ObservableObject {
     /// data hiccup is logged but never turns a successful ship into a failure.
     /// Every run (success or failure) is appended to history before returning.
     @discardableResult
-    func run(target: ReleaseTarget, version: VersionPair?) async -> Bool {
-        guard ReleaseTarget.available(for: app).contains(target) else {
-            runner.log("✗ 当前项目不支持 \(target.title)")
+    func run(target: ReleaseTarget, version: VersionPair?, clearLog: Bool = true) async -> Bool {
+        await runPipeline(target: target, version: version, skipping: [], clearLog: clearLog)
+    }
+
+    /// Resume the most recent failed run from where it stopped: steps that
+    /// already succeeded (including `setVersion`, so the build number is
+    /// never bumped twice) are skipped, the log file is continued rather
+    /// than truncated.
+    @discardableResult
+    func retry() async -> Bool {
+        guard let failed = lastFailedRun, !isRunning else { return false }
+        let alreadyDone = completedSteps
+        return await runPipeline(target: failed.target, version: failed.version,
+                                 skipping: alreadyDone, clearLog: false)
+    }
+
+    /// Cancel both the coordinator and the command that is currently running.
+    func cancel() {
+        cancellationRequested = true
+        runner.terminate()
+    }
+
+    /// Quit-path bookkeeping for an in-flight run: the pipeline task is about
+    /// to be abandoned with the process, so it can't record its own history
+    /// or flush its log sink — do both here, synchronously.
+    func markInterrupted() {
+        guard isRunning else { return }
+        cancellationRequested = true
+        isRunning = false
+        lastOutcome = .cancelled
+        runner.log("✋ 应用退出 — 发布流程中断")
+        if let target = activeTarget {
+            recordHistory(target: target, version: nil,
+                          success: false, failureStep: "应用退出中断")
+        }
+        // Releasing the sink runs its flush queue before the handle closes,
+        // so the on-disk log gets its tail even though the run never returns.
+        runner.logSink = nil
+    }
+
+    private func runPipeline(target: ReleaseTarget,
+                             version: VersionPair?,
+                             skipping: [ReleaseStep],
+                             clearLog: Bool) async -> Bool {
+        // Re-entry guard: the UI disables buttons while running, but a fast
+        // double-click (or any future direct caller) can enqueue a second
+        // pipeline before isRunning flips — two pipelines would clobber each
+        // other's runner state and step tables.
+        guard !isRunning else {
+            runner.log("✗ 已有发布流程在运行,已忽略重复启动")
             return false
         }
-        runner.clear()
+        guard ReleaseTarget.available(for: app).contains(target) else {
+            runner.log("✗ 当前项目不支持 \(target.title)")
+            lastOutcome = .failed("目标不可用")
+            onFinish?(.failed("目标不可用"), target, nil)
+            return false
+        }
+
+        activeTarget = target
+        if clearLog {
+            runner.clear()
+            attachNewLogSink(target: target)
+        } else {
+            // Retry: keep the previous attempt's console output on screen and
+            // continue the same log file — the failure stays visible above
+            // the retry output.
+            resumeLogSink(target: target)
+        }
+        if !skipping.isEmpty {
+            runner.log("↻ 重试:跳过已完成的 \(skipping.count) 步,从失败步骤继续")
+        }
+
+        runStartedAt = Date()
+        runTotalElapsed = nil
+        if clearLog { stepDurations = [:] }
         isRunning = true
-        defer { isRunning = false }
+        defer {
+            isRunning = false
+            currentStep = nil
+            if let started = runStartedAt {
+                runTotalElapsed = Date().timeIntervalSince(started)
+            }
+            runner.logSink = nil // releases the sink → file handle closes after flush
+        }
 
         let steps = steps(for: target)
-        for step in steps { stepStates[step] = .idle }
-        completedSteps.removeAll()
+        let remaining = steps.excludingCompleted(skipping)
+        for step in steps { stepStates[step] = skipping.contains(step) ? .succeeded : .idle }
+        completedSteps = steps.filter { skipping.contains($0) }
         cancellationRequested = false
 
-        for step in steps {
+        for step in remaining {
             guard !cancellationRequested else {
                 runner.log("✋ 已取消发布流程")
-                recordHistory(target: target, version: version,
-                              success: false, failureStep: "已取消")
+                stepStates[step] = .failed("已取消")
+                lastOutcome = .cancelled
+                lastFailedRun = nil
+                let recorded = recordHistory(target: target, version: version,
+                                             success: false, failureStep: "已取消")
+                onFinish?(.cancelled, target, recorded)
                 return false
             }
+            let stepStartedAt = Date()
+            currentStep = step
             stepStates[step] = .running
             runner.log("")
             runner.log("━━━ Step \(step.title) ━━━")
@@ -124,12 +238,16 @@ final class ReleaseCoordinator: ObservableObject {
             case .updatePages:
                 ok = await runUpdatePages()
             }
+            stepDurations[step] = Date().timeIntervalSince(stepStartedAt)
 
             if cancellationRequested {
                 stepStates[step] = .failed("已取消")
                 runner.log("✋ 已取消发布流程")
-                recordHistory(target: target, version: version,
-                              success: false, failureStep: "已取消")
+                lastOutcome = .cancelled
+                lastFailedRun = nil
+                let recorded = recordHistory(target: target, version: version,
+                                             success: false, failureStep: "已取消")
+                onFinish?(.cancelled, target, recorded)
                 return false
             }
 
@@ -145,33 +263,62 @@ final class ReleaseCoordinator: ObservableObject {
             } else {
                 stepStates[step] = .failed("步骤失败,已中断")
                 runner.log("✗ \(step.title) 失败 — 发布中断")
-                recordHistory(target: target, version: version,
-                              success: false, failureStep: step.title)
+                let outcome = RunOutcome.failed(step.title)
+                lastOutcome = outcome
+                let recorded = recordHistory(target: target, version: version,
+                                             success: false, failureStep: step.title)
+                lastFailedRun = FailedRun(target: target, version: recorded)
+                onFinish?(outcome, target, recorded)
                 return false
             }
         }
 
         runner.log("")
         runner.log("🎉 发布完成!")
-        recordHistory(target: target, version: version,
-                      success: true, failureStep: nil)
+        lastOutcome = .success
+        lastFailedRun = nil
+        let recorded = recordHistory(target: target, version: version,
+                                     success: true, failureStep: nil)
+        onFinish?(.success, target, recorded)
         return true
     }
 
-    /// Cancel both the coordinator and the command that is currently running.
-    func cancel() {
-        cancellationRequested = true
-        runner.terminate()
+    // MARK: - Run log files
+
+    private func attachNewLogSink(target: ReleaseTarget) {
+        guard let sink = RunLogStore.makeSink(appID: app.id, target: target.rawValue) else {
+            logSinkURL = nil
+            runner.logSink = nil
+            runner.log("⚠ 无法创建运行日志文件,本次仅保留控制台输出")
+            return
+        }
+        logSinkURL = sink.url
+        runner.logSink = sink
+        runner.log("📝 运行日志: \(sink.url.path)")
+    }
+
+    /// Reopen the previous attempt's log file in append mode so a retry
+    /// continues the same file; falls back to a fresh file if it's gone.
+    private func resumeLogSink(target: ReleaseTarget) {
+        if let url = logSinkURL, FileManager.default.fileExists(atPath: url.path),
+           let sink = FileLogSink(url: url, append: true) {
+            runner.logSink = sink
+            runner.log("↻ 续写运行日志: \(url.path)")
+        } else {
+            attachNewLogSink(target: target)
+        }
     }
 
     // MARK: - History
 
     /// Capture this run into the history store, using the version actually on
     /// disk (which reflects any bump) so the record matches what shipped.
+    /// Returns the recorded pair so callers (notifications, retries) reuse it.
+    @discardableResult
     private func recordHistory(target: ReleaseTarget,
                                version: VersionPair?,
                                success: Bool,
-                               failureStep: String?) {
+                               failureStep: String?) -> VersionPair? {
         let recorded = version ?? VersionManager.read(app)
         historyStore.append(ReleaseRecord(
             appName: app.name,
@@ -180,8 +327,10 @@ final class ReleaseCoordinator: ObservableObject {
             target: target,
             version: recorded,
             success: success,
-            failureStep: failureStep
+            failureStep: failureStep,
+            logPath: logSinkURL?.path
         ))
+        return recorded
     }
 
     // MARK: - Pages / portal sync

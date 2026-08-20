@@ -26,16 +26,21 @@ final class ConsoleRegistry: ObservableObject {
     private var cancellables: [String: AnyCancellable] = [:]
 
     init() {
-        // Best-effort cleanup on quit: terminate any direct child process still
-        // running in a cached runner. Foundation's `Process` can't kill the
-        // whole process group, so grandchildren (e.g. xcodebuild spawned by the
-        // zsh wrapper) may linger — a known limitation.
+        // Best-effort cleanup on quit: terminate any direct child process
+        // still running in a cached runner. Synchronous on purpose — after
+        // this notification the process may exit before a scheduled Task
+        // gets a turn (the observer queue is .main and this class is
+        // @MainActor). Foundation's `Process` can't kill the whole process
+        // group, so grandchildren (e.g. xcodebuild spawned by the zsh
+        // wrapper) may linger — a known limitation.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.terminateAll() }
+            MainActor.assumeIsolated {
+                self?.terminateAll()
+            }
         }
     }
 
@@ -68,8 +73,42 @@ final class ConsoleRegistry: ObservableObject {
     func runnerForSite(_ id: String) -> ShellRunner { runner(for: "site:\(id)") }
     func runnerForPages() -> ShellRunner { runner(for: Self.pagesKey) }
 
-    func isAppRunning(_ id: String) -> Bool { runningIds.contains("app:\(id)") }
+    static func releaseKey(_ id: String) -> String { "release:\(id)" }
+    static func siteReleaseKey(_ id: String) -> String { "site-release:\(id)" }
+
+    func runnerForRelease(_ id: String) -> ShellRunner { runner(for: Self.releaseKey(id)) }
+
+    /// Runner for a site's one-click publish flow (separate from the manual
+    /// action runner, same split apps use, so a backgrounded publish doesn't
+    /// clobber the manual console and vice versa).
+    func runnerForSiteRelease(_ id: String) -> ShellRunner { runner(for: Self.siteReleaseKey(id)) }
+
+    /// Whether anything is executing for this app — a manual action from the
+    /// detail page OR a backgrounded one-click release.
+    func isAppRunning(_ id: String) -> Bool {
+        runningIds.contains("app:\(id)") || isReleaseRunning(id)
+    }
+
+    func isReleaseRunning(_ id: String) -> Bool {
+        runningIds.contains(Self.releaseKey(id))
+    }
+
     func isSiteRunning(_ id: String) -> Bool { runningIds.contains("site:\(id)") }
+
+    func isSiteReleaseRunning(_ id: String) -> Bool {
+        runningIds.contains(Self.siteReleaseKey(id))
+    }
+
+    /// Whether anything at all is executing for this site — manual actions or
+    /// a backgrounded publish. Both race on the same clone, so callers that
+    /// guard a site's working tree should use this, not `isSiteRunning`.
+    func isSiteBusy(_ id: String) -> Bool {
+        isSiteRunning(id) || isSiteReleaseRunning(id)
+    }
+
+    /// Whether the pages-manager batch deploy is mid-flight (site detail
+    /// pages use this to keep their own push button out of the way).
+    func isPagesRunning() -> Bool { runningIds.contains(Self.pagesKey) }
 
     static let pagesKey = "pages-manager"
 
@@ -77,6 +116,22 @@ final class ConsoleRegistry: ObservableObject {
     func terminateAll() {
         for (_, r) in runners where r.isRunning {
             r.terminate()
+        }
+    }
+
+    /// Drop cached runners for projects that no longer exist in the catalog
+    /// (pass the SURVIVING ids). Prevents a deleted project's logs/running
+    /// state from leaking into a new project that reuses the same id.
+    /// Runners mid-command are kept — the process deserves to finish (or be
+    /// cancelled explicitly via the quit path).
+    func evict(keepingAppIDs: Set<String>, keepingSiteIDs: Set<String>) {
+        let keep = Set(keepingAppIDs.flatMap { ["app:\($0)", Self.releaseKey($0)] }
+                       + keepingSiteIDs.flatMap { ["site:\($0)", Self.siteReleaseKey($0)] }
+                       + [Self.pagesKey])
+        for (key, runner) in runners where !keep.contains(key) && !runner.isRunning {
+            runners[key] = nil
+            cancellables[key] = nil
+            runningIds.remove(key)
         }
     }
 }

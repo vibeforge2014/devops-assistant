@@ -103,24 +103,43 @@ struct SiteProject: Codable, Identifiable, Equatable {
     let path: String        // local clone root
     let repositoryURL: String // complete Git clone URL (SSH or HTTPS)
     let deploy: DeployMethod
+    /// Live site URL. Usually derivable from `repositoryURL`
+    /// (owner.github.io/repo) — set this only when the site is served from a
+    /// custom domain.
+    let url: String?
+    /// Cloudflare Pages project name (only used by `.cloudflarePages`);
+    /// defaults to `id` when nil.
+    let cloudflareProject: String?
+    /// Directory inside the repo that `.cloudflarePages` uploads
+    /// (e.g. `docs`); the repo root when nil.
+    let deployDir: String?
 
     init(id: String, name: String, path: String,
-         repositoryURL: String, deploy: DeployMethod) {
+         repositoryURL: String, deploy: DeployMethod, url: String? = nil,
+         cloudflareProject: String? = nil, deployDir: String? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.repositoryURL = repositoryURL
         self.deploy = deploy
+        self.url = url
+        self.cloudflareProject = cloudflareProject
+        self.deployDir = deployDir
     }
 
     /// Decode the current full-URL shape and the legacy `repo: owner/name`
     /// shape used by bundled catalogs before project management was editable.
+    /// `cloudflareProject`/`deployDir` predate nothing — catalogs without
+    /// them decode with nil.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
         deploy = try container.decode(DeployMethod.self, forKey: .deploy)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        cloudflareProject = try container.decodeIfPresent(String.self, forKey: .cloudflareProject)
+        deployDir = try container.decodeIfPresent(String.self, forKey: .deployDir)
         if let url = try container.decodeIfPresent(String.self, forKey: .repositoryURL) {
             repositoryURL = url
         } else {
@@ -138,10 +157,14 @@ struct SiteProject: Codable, Identifiable, Equatable {
         try container.encode(path, forKey: .path)
         try container.encode(repositoryURL, forKey: .repositoryURL)
         try container.encode(deploy, forKey: .deploy)
+        try container.encodeIfPresent(url, forKey: .url)
+        try container.encodeIfPresent(cloudflareProject, forKey: .cloudflareProject)
+        try container.encodeIfPresent(deployDir, forKey: .deployDir)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, path, repositoryURL, repo, deploy
+        case id, name, path, repositoryURL, repo, deploy, url
+        case cloudflareProject, deployDir
     }
 
     var resolvedPath: String {
@@ -151,6 +174,50 @@ struct SiteProject: Codable, Identifiable, Equatable {
     var existsOnDisk: Bool {
         FileManager.default.fileExists(atPath: resolvedPath)
     }
+
+    /// The site's public URL: an explicit `url` (custom domain) when set,
+    /// the Cloudflare `*.pages.dev` convention for direct-upload sites,
+    /// otherwise the GitHub Pages convention derived from the repository.
+    /// nil when the repository URL can't be parsed into owner/repo.
+    var liveURL: URL? {
+        if let url, let parsed = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)),
+           parsed.scheme != nil {
+            return parsed
+        }
+        switch deploy {
+        case .cloudflarePages:
+            return URL(string: "https://\(cloudflareProject ?? id).pages.dev")
+        case .gitPushMain, .ghPages:
+            return Self.pagesURL(forRepository: repositoryURL)
+        }
+    }
+
+    /// `git@github.com:owner/repo.git` (or the HTTPS form) →
+    /// `https://owner.github.io/repo/`; a `owner.github.io` repo maps to its
+    /// bare host.
+    static func pagesURL(forRepository raw: String) -> URL? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var path = value
+        if path.hasPrefix("git@github.com:") {
+            path = String(path.dropFirst("git@github.com:".count))
+        } else if let https = URL(string: value),
+                  https.host?.lowercased() == "github.com" {
+            path = https.path
+        } else {
+            return nil
+        }
+        let parts = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .split(separator: "/").map(String.init)
+        guard parts.count == 2 else { return nil }
+        let owner = parts[0].lowercased()
+        var repo = parts[1]
+        if repo.hasSuffix(".git") { repo = String(repo.dropLast(4)) }
+        guard !owner.isEmpty, !repo.isEmpty else { return nil }
+        if repo.lowercased() == "\(owner).github.io" {
+            return URL(string: "https://\(repo)")
+        }
+        return URL(string: "https://\(owner).github.io/\(repo)/")
+    }
 }
 
 /// How a site is published after a push.
@@ -159,6 +226,17 @@ enum DeployMethod: String, Codable, CaseIterable {
     case gitPushMain = "git-push-main"
     /// The portal: gh-pages npm package pushes out/ to the gh-pages branch.
     case ghPages = "gh-pages"
+    /// Direct upload via `wrangler pages deploy` (buildless Cloudflare Pages;
+    /// token comes from the keychain — see `PagesDeployer.defaultCloudflareToken`).
+    case cloudflarePages = "cloudflare-pages"
+
+    var displayName: String {
+        switch self {
+        case .gitPushMain: "push main 自动部署"
+        case .ghPages: "gh-pages npm 部署"
+        case .cloudflarePages: "Cloudflare Pages 直传"
+        }
+    }
 }
 
 /// A release destination exposed by the one-click release flow.

@@ -25,11 +25,24 @@ final class ShellRunnerTests: XCTestCase {
         let runner = ShellRunner()
         _ = await runner.run(executable: "/bin/echo", args: ["first"])
         _ = await runner.run(executable: "/bin/echo", args: ["second"])
-        await Task.yield()
 
-        let text = runner.lines.map(\.text).joined(separator: "\n")
+        // Line delivery hops through unstructured Tasks onto the main actor;
+        // a single yield isn't guaranteed to drain them under load — poll
+        // briefly for the expected content instead.
+        let text = await awaitingConsoleText(runner, containing: ["first", "second"])
         XCTAssertTrue(text.contains("first"))
         XCTAssertTrue(text.contains("second"))
+    }
+
+    private func awaitingConsoleText(_ runner: ShellRunner, containing needles: [String],
+                                      timeout: TimeInterval = 2) async -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let text = runner.lines.map(\.text).joined(separator: "\n")
+            if needles.allSatisfy(text.contains) { return text }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return runner.lines.map(\.text).joined(separator: "\n")
     }
 
     func testTerminateCancelsCurrentProcess() async {

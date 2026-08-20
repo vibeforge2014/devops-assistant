@@ -11,6 +11,7 @@ enum Credential: String, CaseIterable {
     case appleTeamID = "apple_team_id"
     case appleID = "apple_id"                       // Apple ID account
     case appSpecificPassword = "app_specific_password" // app-specific password
+    case cloudflareAPIToken = "cloudflare_api_token"   // Cloudflare Pages direct upload
 
     /// The keychain account string (prefixed to avoid collisions).
     var account: String { "vibeforge.devops.\(rawValue)" }
@@ -25,6 +26,7 @@ enum Credential: String, CaseIterable {
         case .appleTeamID: "Apple Team ID"
         case .appleID: "Apple ID"
         case .appSpecificPassword: "App 专用密码"
+        case .cloudflareAPIToken: "Cloudflare API Token"
         }
     }
 }
@@ -64,5 +66,14 @@ enum ReleaseStep: String, CaseIterable, Identifiable {
         case .uploadRelease: "shippingbox"
         case .updatePages: "globe"
         }
+    }
+}
+
+extension [ReleaseStep] {
+    /// The pipeline steps still to run, in order, once `completed` have
+    /// succeeded (used when resuming a failed run from where it stopped).
+    func excludingCompleted(_ completed: [ReleaseStep]) -> [ReleaseStep] {
+        let done = Set(completed)
+        return filter { !done.contains($0) }
     }
 }

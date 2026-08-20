@@ -43,8 +43,16 @@ final class LocalTestFlightService {
     private func builtInUpload(app: AppProject) async -> RunResult {
         runner.log("ℹ 未检测到上传脚本或 Fastlane beta lane，使用内置 IPA + altool")
         let artifact = await ArtifactPackagingService(runner: runner).packageIPA(app: app)
-        guard artifact.succeeded, let ipa = artifact.path, let key = TemporaryAPIKey() else {
+        guard artifact.succeeded, let ipa = artifact.path else {
             return artifact.result
+        }
+        // Packaging succeeded — its exit code says nothing about the upload
+        // below. A missing/unreadable ASC key here must NOT be reported as a
+        // successful upload (that once made the release pipeline record a
+        // "shipped" build Apple never received).
+        guard let key = TemporaryAPIKey() else {
+            runner.log("✗ ASC API 密钥不可用 — 请在「凭据设置」检查 .p8 / Key ID / Issuer ID")
+            return RunResult(exitCode: -1, cancelled: false)
         }
         runner.log("▶ altool 上传 TestFlight — \(app.name)")
         return await runner.run(executable: "/usr/bin/xcrun", args: [

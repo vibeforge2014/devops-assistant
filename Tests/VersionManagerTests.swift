@@ -73,6 +73,43 @@ final class VersionManagerTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), yml)
     }
 
+    // MARK: - Write verification
+
+    func testWriteFailsWhenProjectYmlHasNoVersionKeys() throws {
+        // The release pipeline's setVersion step treats write() == true as
+        // "version on disk is now X" — a no-op regex pass must return false,
+        // or the app ships with the OLD version believing it was bumped.
+        let yml = "name: Fixture\noptions:\n  bundleIdPrefix: com.example\n"
+        let url = root.appendingPathComponent("project.yml")
+        try yml.write(to: url, atomically: true, encoding: .utf8)
+        let app = makeApp(source: .projectYml)
+
+        XCTAssertFalse(VersionManager.write(VersionPair(marketing: "2.0.0", build: "5"), to: app))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), yml)
+    }
+
+    func testWriteFailsWhenProjectYmlHasOnlyOneVersionKey() throws {
+        let yml = "MARKETING_VERSION: 1.0.0\n"
+        let url = root.appendingPathComponent("project.yml")
+        try yml.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(VersionManager.write(VersionPair(marketing: "2.0.0", build: "5"),
+                                            to: makeApp(source: .projectYml)))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), yml)
+    }
+
+    func testWriteFailsWhenPbxprojHasNoVersionKeys() throws {
+        let project = root.appendingPathComponent("Fixture.xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let pbx = "buildSettings = {\n    SWIFT_VERSION = 5.0;\n};\n"
+        let url = project.appendingPathComponent("project.pbxproj")
+        try pbx.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(VersionManager.write(VersionPair(marketing: "2.0.0", build: "5"),
+                                            to: makeApp(source: .pbxproj)))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), pbx)
+    }
+
     private func makeApp(source: VersionSource) -> AppProject {
         AppProject(id: "fixture", name: "Fixture", path: root.path,
                    repositoryURL: "https://github.com/example/fixture.git",

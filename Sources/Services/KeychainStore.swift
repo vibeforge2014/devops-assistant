@@ -60,4 +60,22 @@ struct KeychainStore {
         guard let value = get(credential) else { return false }
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Read a login-keychain item created OUTSIDE the app, looked up by its
+    /// bare service name — e.g. the `devops-assistant-cloudflare` token that
+    /// `scripts/deploy-pages.sh` reads. First access from the app may prompt
+    /// for keychain access; "Always Allow" persists the grant.
+    /// Not a `Credential` because it predates the app's own store.
+    static func legacyItem(service: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
 }

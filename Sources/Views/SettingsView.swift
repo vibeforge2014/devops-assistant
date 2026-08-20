@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var showClearConfirmation = false
     @State private var feedback: Feedback?
     @State private var importError: String?
+    @State private var showExportMigration = false
+    @State private var showImportMigration = false
 
     private var hasUnsavedChanges: Bool { values != savedValues }
 
@@ -70,6 +72,29 @@ struct SettingsView: View {
                         credentialRow(.matchGitURL, prompt: "git@github.com:vibeforge2014/aptv-certs.git")
                         credentialRow(.matchPassword, prompt: "Match 仓库解密密码", secure: true)
                     }
+
+                    credentialSection(
+                        "迁移",
+                        detail: "换 Mac 或重装系统时,把凭据加密导出后在新机器导入",
+                        systemImage: "arrow.left.arrow.right.square"
+                    ) {
+                        HStack(spacing: 12) {
+                            Button {
+                                showExportMigration = true
+                            } label: {
+                                Label("导出迁移文件…", systemImage: "square.and.arrow.up")
+                            }
+                            Button {
+                                showImportMigration = true
+                            } label: {
+                                Label("导入迁移文件…", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        Text("导出文件使用你设置的口令加密(AES-256-GCM + PBKDF2),口令遗忘则无法恢复")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 validationPanel
@@ -107,6 +132,15 @@ struct SettingsView: View {
             Button("好", role: .cancel) { importError = nil }
         } message: {
             Text(importError ?? "请选择 App Store Connect 下载的 AuthKey_*.p8 文件。")
+        }
+        .sheet(isPresented: $showExportMigration) {
+            CredentialExportSheet()
+        }
+        .sheet(isPresented: $showImportMigration) {
+            CredentialImportSheet { _ in
+                reloadAll(showFeedback: false)
+                feedback = Feedback(message: "迁移文件中的凭据已导入本机钥匙串", isError: false)
+            }
         }
     }
 

@@ -17,14 +17,20 @@ final class HistoryStore: ObservableObject {
 
     private let fileURL: URL
 
-    init() {
+    convenience init() {
         let fm = FileManager.default
         let appSupport = fm.urls(for: .applicationSupportDirectory,
                                  in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let dir = appSupport.appendingPathComponent("com.vibeforge.devops-assistant", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        self.fileURL = dir.appendingPathComponent("history.json", isDirectory: false)
+        self.init(fileURL: dir.appendingPathComponent("history.json", isDirectory: false))
+    }
+
+    /// Injectable path keeps persistence tests isolated from the user's real
+    /// history file.
+    init(fileURL: URL) {
+        self.fileURL = fileURL
         load()
     }
 

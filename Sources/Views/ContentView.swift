@@ -4,13 +4,14 @@ import SwiftUI
 /// and a detail pane showing the selected item's actions.
 struct ContentView: View {
     @EnvironmentObject var catalog: ProjectCatalog
-    @State private var selection: SidebarItem? = .dashboard
+    @EnvironmentObject private var releaseCenter: ReleaseCenter
+    @EnvironmentObject private var navigation: NavigationModel
 
     var body: some View {
         NavigationSplitView {
-            Sidebar(selection: $selection)
+            Sidebar(selection: $navigation.selection)
         } detail: {
-            if let selection {
+            if let selection = navigation.selection {
                 detailView(for: selection)
             } else {
                 // Nothing selected: show the dashboard as the landing view.
@@ -18,13 +19,24 @@ struct ContentView: View {
             }
         }
         .onReceive(catalog.$data) { _ in
-            switch selection {
+            switch navigation.selection {
             case .app(let id) where catalog.app(id: id) == nil,
                  .site(let id) where catalog.site(id: id) == nil:
-                selection = .dashboard
+                navigation.selection = .dashboard
             default:
                 break
             }
+        }
+        // A clicked "release finished" notification navigates here.
+        .onReceive(releaseCenter.$pendingFocusAppID) { id in
+            guard let id, catalog.app(id: id) != nil else { return }
+            navigation.selection = .app(id)
+            releaseCenter.clearFocus()
+        }
+        .onReceive(releaseCenter.$pendingFocusSiteID) { id in
+            guard let id, catalog.site(id: id) != nil else { return }
+            navigation.selection = .site(id)
+            releaseCenter.clearFocus()
         }
     }
 
@@ -40,7 +52,7 @@ struct ContentView: View {
             }
         case .site(let id):
             if let site = catalog.site(id: id) {
-                SiteDetail(site: site)
+                SiteDetail(site: site, center: releaseCenter)
                     .id(id) // force fresh @State when switching sites
             } else {
                 EmptyDetail()
@@ -71,6 +83,15 @@ enum SidebarItem: Hashable {
     case pages
     case projectManager
     case settings
+}
+
+/// App-level navigation state. Selection used to live as `@State` inside
+/// `ContentView`, but more surfaces than the sidebar want to navigate now
+/// (dashboard rows, the wizard's "查看发布历史") — lifting it here gives them
+/// all a single switch to flip.
+@MainActor
+final class NavigationModel: ObservableObject {
+    @Published var selection: SidebarItem? = .dashboard
 }
 
 /// Empty placeholder for when nothing is selected.

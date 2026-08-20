@@ -8,6 +8,8 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject var catalog: ProjectCatalog
     @EnvironmentObject var historyStore: HistoryStore
+    @EnvironmentObject private var registry: ConsoleRegistry
+    @EnvironmentObject private var navigation: NavigationModel
 
     /// app.id → current version, loaded once on appear.
     @State private var versions: [String: VersionPair] = [:]
@@ -26,6 +28,10 @@ struct DashboardView: View {
         }
         .navigationTitle("仪表盘")
         .onAppear { loadVersions() }
+        // New/edited projects change what loadVersions should read; a finished
+        // release (record appended) changed the on-disk build numbers.
+        .onReceive(catalog.$data) { _ in loadVersions() }
+        .onReceive(historyStore.$records) { _ in loadVersions() }
     }
 
     // MARK: - Intro
@@ -75,44 +81,61 @@ struct DashboardView: View {
 
     private func appRow(_ app: AppProject) -> some View {
         let version = versions[app.id]
-        return HStack(spacing: 12) {
-            Image(systemName: platformIcon(app.platform))
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
-                    Text(app.name).font(.headline)
-                    Text(app.platform.displayName)
-                        .font(.caption2)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
-                        .foregroundStyle(.secondary)
-                    if !app.existsOnDisk {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .help("项目路径不存在")
+        return Button {
+            navigation.selection = .app(app.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: platformIcon(app.platform))
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(app.name).font(.headline)
+                        Text(app.platform.displayName)
+                            .font(.caption2)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                            .foregroundStyle(.secondary)
+                        if registry.isAppRunning(app.id) {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .help("正在执行任务")
+                        }
+                        if !app.existsOnDisk {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .help("项目路径不存在")
+                        }
                     }
+                    Text(app.bundleId)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                 }
-                Text(app.bundleId)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(version?.marketing ?? "—")
+                        .font(.callout.monospacedDigit().bold())
+                    Text("build \(version?.build ?? "—")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 90, alignment: .trailing)
+                Image(systemName: "chevron.right")
+                    .font(captionChevronFont)
+                    .foregroundStyle(.tertiary)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 1) {
-                Text(version?.marketing ?? "—")
-                    .font(.callout.monospacedDigit().bold())
-                Text("build \(version?.build ?? "—")")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 90, alignment: .trailing)
+            .padding(12)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
-        .padding(12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+        .buttonStyle(.plain)
+        .help("打开 \(app.name)")
     }
+
+    private var captionChevronFont: Font { .caption.weight(.semibold) }
 
     // MARK: - Sites
 
@@ -128,40 +151,67 @@ struct DashboardView: View {
     }
 
     private func siteRow(_ site: SiteProject) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "globe")
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
-                    Text(site.name).font(.headline)
-                    if !site.existsOnDisk {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .help("本地克隆不存在")
+        Button {
+            navigation.selection = .site(site.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(site.name).font(.headline)
+                        if registry.isSiteRunning(site.id) {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .help("正在执行任务")
+                        }
+                        if !site.existsOnDisk {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .help("本地克隆不存在")
+                        }
                     }
+                    Text(site.repositoryURL)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
                 }
-                Text(site.repositoryURL)
+                Spacer()
+                Text(deployLabel(site.deploy))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
+                Image(systemName: "chevron.right")
+                    .font(captionChevronFont)
+                    .foregroundStyle(.tertiary)
             }
-            Spacer()
-            Text(deployLabel(site.deploy))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .padding(12)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
-        .padding(12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+        .buttonStyle(.plain)
+        .help("打开 \(site.name)")
     }
 
     // MARK: - Recent releases
 
     private var recentReleasesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("最近发布", systemImage: "clock.arrow.circlepath")
+            HStack {
+                sectionHeader("最近发布", systemImage: "clock.arrow.circlepath")
+                Spacer()
+                if !historyStore.records.isEmpty {
+                    Button {
+                        navigation.selection = .history
+                    } label: {
+                        Label("查看全部", systemImage: "arrow.right.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
             let recent = Array(historyStore.records.prefix(5))
             if recent.isEmpty {
                 ContentUnavailableView(
@@ -230,6 +280,7 @@ struct DashboardView: View {
         switch method {
         case .gitPushMain: "push 部署"
         case .ghPages: "gh-pages"
+        case .cloudflarePages: "Cloudflare"
         }
     }
 

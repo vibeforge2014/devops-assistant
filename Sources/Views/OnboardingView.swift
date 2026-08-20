@@ -17,6 +17,8 @@ struct OnboardingView: View {
     @State private var validating = false
     @State private var validationResults: [CredentialValidationResult] = []
     @State private var showKeyImporter = false
+    @State private var showMigrationImport = false
+    @State private var importIssue: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,14 +57,28 @@ struct OnboardingView: View {
                         } label: {
                             Label("一键导入本机凭据", systemImage: "wand.and.stars")
                         }
+                        Button {
+                            showMigrationImport = true
+                        } label: {
+                            Label("从迁移文件导入…", systemImage: "arrow.left.arrow.right.square")
+                        }
+                        Text("新机器迁移:用旧 Mac 上「凭据设置 → 迁移」导出的加密文件一键恢复")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
                 Section {
                     Button {
+                        importIssue = nil
                         showKeyImporter = true
                     } label: {
                         Label("选择 AuthKey_*.p8", systemImage: "doc.badge.plus")
+                    }
+                    if let importIssue {
+                        Label(importIssue, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
                     TextField("Key ID（10 位）", text: $keyID)
                         .textFieldStyle(.roundedBorder)
@@ -134,6 +150,24 @@ struct OnboardingView: View {
         .fileImporter(isPresented: $showKeyImporter, allowedContentTypes: [.data]) { result in
             importAPIKey(result)
         }
+        .sheet(isPresented: $showMigrationImport) {
+            CredentialImportSheet { pairs in
+                handleMigrationImport(pairs)
+            }
+        }
+    }
+
+    /// Fill the visible fields from a migration import and surface what
+    /// landed in the keychain (the credentials are already written by the
+    /// sheet itself — same immediate-write pattern as the .p8 import).
+    private func handleMigrationImport(_ pairs: [Credential: String]) {
+        if let value = pairs[.ascAPIKeyID] { keyID = value }
+        if let value = pairs[.ascIssuerID] { issuerID = value }
+        if let value = pairs[.appleTeamID] { teamID = value }
+        if let value = pairs[.matchPassword] { matchPassword = value }
+        summary.imported = pairs.keys.map(\.label).sorted()
+        summary.missing = OnboardingService.missingItems
+        didImport = true
     }
 
     private func importNow() {
@@ -159,8 +193,15 @@ struct OnboardingView: View {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         guard let content = try? String(contentsOf: url, encoding: .utf8),
-              content.contains("BEGIN PRIVATE KEY") else { return }
-        KeychainStore.set(content, for: .ascAPIKeyContent)
+              content.contains("BEGIN PRIVATE KEY") else {
+            importIssue = "不是有效的私钥文件 — 请选择 App Store Connect 下载的 AuthKey_*.p8"
+            return
+        }
+        guard KeychainStore.set(content, for: .ascAPIKeyContent) else {
+            importIssue = "写入钥匙串失败 — 请检查钥匙串是否被锁定"
+            return
+        }
+        importIssue = nil
         let name = url.deletingPathExtension().lastPathComponent
         if name.hasPrefix("AuthKey_") { keyID = String(name.dropFirst("AuthKey_".count)) }
     }

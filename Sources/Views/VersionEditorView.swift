@@ -4,6 +4,7 @@ import SwiftUI
 /// 版本,支持「bump build」自增构建号或打开 sheet 手动编辑。
 struct VersionEditorView: View {
     @EnvironmentObject var catalog: ProjectCatalog
+    @EnvironmentObject private var registry: ConsoleRegistry
 
     /// app.id → 当前版本缓存,onAppear 时批量读取,bump / 编辑后局部刷新。
     @State private var versions: [String: VersionPair] = [:]
@@ -91,6 +92,10 @@ struct VersionEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            // A release's setVersion step (or a running build) writes these
+            // same files — block concurrent edits from this cross-project tool.
+            .disabled(registry.isAppRunning(app.id))
+            .help(registry.isAppRunning(app.id) ? "该项目正在执行任务,稍后再改版本号" : "构建号 +1")
 
             Button {
                 editingCurrent = version
@@ -100,6 +105,8 @@ struct VersionEditorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(registry.isAppRunning(app.id))
+            .help(registry.isAppRunning(app.id) ? "该项目正在执行任务,稍后再改版本号" : "手动编辑版本号")
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 10))
@@ -131,6 +138,7 @@ struct VersionEditSheet: View {
 
     @State private var marketing: String = ""
     @State private var build: String = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -150,6 +158,13 @@ struct VersionEditSheet: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Button("取消", role: .cancel) { dismiss() }
                 Spacer()
@@ -161,11 +176,37 @@ struct VersionEditSheet: View {
         .padding(20)
         .frame(width: 380)
         .onAppear { populate() }
+        .onChange(of: marketing) { _, _ in errorMessage = nil }
+        .onChange(of: build) { _, _ in errorMessage = nil }
     }
 
     private var canSave: Bool {
-        !marketing.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !build.trimmingCharacters(in: .whitespaces).isEmpty
+        inputValid
+    }
+
+    /// Same format rules as the release wizard (ReleaseFlowView), enforced
+    /// up front so save() can't quietly fall into a write failure.
+    private var inputValid: Bool {
+        let m = marketing.trimmingCharacters(in: .whitespaces)
+        let b = build.trimmingCharacters(in: .whitespaces)
+        let marketingOK = m.range(
+            of: #"^\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?$"#,
+            options: .regularExpression) != nil
+        let buildOK = Int(b).map { $0 >= 0 } ?? false
+        return marketingOK && buildOK
+    }
+
+    private var inputProblem: String? {
+        let m = marketing.trimmingCharacters(in: .whitespaces)
+        let b = build.trimmingCharacters(in: .whitespaces)
+        if m.range(of: #"^\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?$"#,
+                   options: .regularExpression) == nil {
+            return "MARKETING_VERSION 需为数字版本号,如 1.2.3"
+        }
+        if Int(b).map({ $0 >= 0 }) == nil {
+            return "CURRENT_PROJECT_VERSION 需为非负整数"
+        }
+        return nil
     }
 
     private func populate() {
@@ -174,11 +215,18 @@ struct VersionEditSheet: View {
     }
 
     private func save() {
+        guard inputValid else {
+            errorMessage = inputProblem
+            return
+        }
         let pair = VersionPair(
             marketing: marketing.trimmingCharacters(in: .whitespaces),
             build: build.trimmingCharacters(in: .whitespaces)
         )
-        guard VersionManager.write(pair, to: app) else { return }
+        guard VersionManager.write(pair, to: app) else {
+            errorMessage = "写入失败:项目路径不存在,或版本文件中找不到可替换的 MARKETING_VERSION / CURRENT_PROJECT_VERSION 行"
+            return
+        }
         onSaved(pair)
         dismiss()
     }

@@ -1,17 +1,22 @@
+import AppKit
 import SwiftUI
 
 /// One-click release wizard. Choose a target (TestFlight / App Store / macOS
 /// notarized distribution), optionally set the marketing version, then run the
 /// pipeline. Steps render live with success/failure states; the console below
 /// mirrors output in real time. Failures stop the pipeline at the offending
-/// step so no work is wasted on top of a broken build.
+/// step so no work is wasted on top of a broken build — and can then be
+/// resumed from that step with 重试.
+///
+/// The coordinator is owned by `ReleaseCenter`, not this sheet: dismissing
+/// the sheet ("后台运行") never stops a running release, and reopening it
+/// shows live progress again.
 struct ReleaseFlowView: View {
     let app: AppProject
+    @ObservedObject private var coordinator: ReleaseCoordinator
     private let catalogData: ProjectCatalogData
+    @EnvironmentObject private var navigation: NavigationModel
     @Environment(\.dismiss) private var dismiss
-
-    @StateObject private var runner = ShellRunner()
-    @StateObject private var coordinator: ReleaseCoordinator
 
     @State private var target: ReleaseTarget = .testFlight
     @State private var marketingVersion = ""
@@ -19,20 +24,19 @@ struct ReleaseFlowView: View {
     @State private var showVersionFields = false
     @State private var preflightChecks: [PreflightCheck] = []
     @State private var preflightRunning = false
+    /// Current on-disk version, loaded on appear — anchors the "当前 → 将发布"
+    /// preview and the field prefill.
+    @State private var currentVersion: VersionPair?
+    /// Suppresses the target-change reset for the programmatic sync in
+    /// `onAppear` — reopening the sheet over a (finished or running) release
+    /// must not wipe its step states.
+    @State private var syncingTargetFromRun = false
 
-    /// `catalog` & `historyStore` are passed in (rather than read via
-    /// @EnvironmentObject) because the coordinator is built in `init`, before
-    /// the environment is available — and the coordinator must own the same
-    /// `runner` the console binds to, so it can't be rebuilt later.
-    init(app: AppProject, catalog: ProjectCatalog, historyStore: HistoryStore) {
+    init(app: AppProject, center: ReleaseCenter, catalog: ProjectCatalog, historyStore: HistoryStore) {
         self.app = app
         self.catalogData = catalog.data
-        let runner = ShellRunner()
-        let firstTarget = ReleaseTarget.available(for: app).first ?? .testFlight
-        _runner = StateObject(wrappedValue: runner)
-        _target = State(initialValue: firstTarget)
-        _coordinator = StateObject(wrappedValue: ReleaseCoordinator(
-            app: app, runner: runner, catalog: catalog, historyStore: historyStore))
+        _coordinator = ObservedObject(wrappedValue: center.coordinator(for: app))
+        _target = State(initialValue: ReleaseTarget.available(for: app).first ?? .testFlight)
     }
 
     private var steps: [ReleaseStep] {
@@ -55,11 +59,30 @@ struct ReleaseFlowView: View {
             }
 
             Divider()
-            ConsolePanel(runner: runner)
+            ConsolePanel(runner: coordinator.runner)
                 .frame(height: 180)
         }
         .frame(width: 640, height: 720)
-        .onAppear { refreshPreflight() }
+        .onAppear {
+            // Reopened over a backgrounded run: follow the target that's
+            // actually executing instead of the picker default.
+            if let active = coordinator.activeTarget, active != target {
+                syncingTargetFromRun = true
+                target = active
+            }
+            currentVersion = VersionManager.read(app)
+            refreshPreflight()
+        }
+        .onChange(of: showVersionFields) { _, shown in
+            // First toggle on: prefill with the next plausible version (same
+            // marketing, build +1) so "设置版本号" starts from reality instead
+            // of two blank fields.
+            if shown, marketingVersion.isEmpty, buildNumber.isEmpty,
+               let current = currentVersion ?? VersionManager.read(app) {
+                marketingVersion = current.marketing
+                buildNumber = ReleaseFormatting.bumped(current).build
+            }
+        }
     }
 
     // MARK: - Header
@@ -68,14 +91,27 @@ struct ReleaseFlowView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text("发布 \(app.name)").font(.title2.bold())
-                Text(coordinator.isRunning ? "运行中…" : finishedLabel)
-                    .font(.caption)
-                    .foregroundStyle(coordinator.isRunning ? .blue : .secondary)
+                if coordinator.isRunning {
+                    // Ticks once a second so the total-run timer stays live.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(runningLabel(at: context.date))
+                            .font(.caption)
+                            .foregroundStyle(statusColor)
+                    }
+                } else {
+                    Text(finishedLabel)
+                        .font(.caption)
+                        .foregroundStyle(statusColor)
+                }
             }
             Spacer()
+            openLogButton
             if coordinator.isRunning {
                 Button("取消") { coordinator.cancel() }
                     .buttonStyle(.bordered)
+                Button("后台运行") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .help("发布在后台继续,完成后发系统通知;可随时回来查看进度")
             } else {
                 Button("关闭") { dismiss() }
                     .buttonStyle(.bordered)
@@ -85,11 +121,61 @@ struct ReleaseFlowView: View {
         .background(.regularMaterial)
     }
 
+    /// Jump straight to the run log on disk ( Finder-revealed) — the fastest
+    /// path from "failed" to the actual error context after the app quit or
+    /// the console scrolled away.
+    @ViewBuilder
+    private var openLogButton: some View {
+        if let url = coordinator.logSinkURL,
+           FileManager.default.fileExists(atPath: url.path) {
+            Button {
+                NSWorkspace.shared.selectFile(
+                    url.path,
+                    inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+            } label: {
+                Label("打开日志", systemImage: "doc.text.magnifyingglass")
+            }
+            .buttonStyle(.bordered)
+            .help(url.path)
+        }
+    }
+
+    private func runningLabel(at now: Date) -> String {
+        var label = "运行中 · \(coordinator.currentStep?.title ?? "准备中…")"
+        if let started = coordinator.runStartedAt {
+            label += " · \(ReleaseFormatting.duration(now.timeIntervalSince(started)))"
+        }
+        return label
+    }
+
+    private var statusColor: Color {
+        if coordinator.isRunning { return .blue }
+        switch coordinator.lastOutcome {
+        case .success: return .green
+        case .failed: return .red
+        case .cancelled, .nothingToPublish: return .secondary
+        case nil: return .secondary
+        }
+    }
+
     private var finishedLabel: String {
         let done = coordinator.completedSteps.count
         let total = steps.count
         if total == 0 { return "选择目标后运行" }
-        return "\(done)/\(total) 步完成"
+        let elapsed = coordinator.runTotalElapsed
+            .map { " · 用时 \(ReleaseFormatting.duration($0))" } ?? ""
+        switch coordinator.lastOutcome {
+        case .success:
+            return "✓ 已完成(\(done)/\(total) 步)\(elapsed)"
+        case .failed(let step):
+            return "✗ 失败于「\(step)」(\(done)/\(total) 步)\(elapsed)"
+        case .cancelled:
+            return "已取消(\(done)/\(total) 步)"
+        case .nothingToPublish:
+            return "没有需要发布的变更"
+        case nil:
+            return "\(done)/\(total) 步完成"
+        }
     }
 
     // MARK: - Target picker
@@ -105,8 +191,12 @@ struct ReleaseFlowView: View {
             .pickerStyle(.segmented)
             .disabled(coordinator.isRunning)
             .onChange(of: target) { _, _ in
-                // Reset step state when switching targets.
-                coordinator.resetSteps()
+                if syncingTargetFromRun {
+                    syncingTargetFromRun = false
+                } else if !coordinator.isRunning {
+                    // A real user switch: reset step state for the new target.
+                    coordinator.resetSteps()
+                }
                 refreshPreflight()
             }
 
@@ -123,6 +213,21 @@ struct ReleaseFlowView: View {
             Toggle("设置版本号", isOn: $showVersionFields)
                 .disabled(coordinator.isRunning)
                 .font(.subheadline)
+
+            if !coordinator.isRunning, let planned = plannedVersion {
+                HStack(spacing: 6) {
+                    if let current = currentVersion {
+                        Text("当前 \(current.marketing) (\(current.build))")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Text("将发布 \(planned.marketing) (\(planned.build))")
+                        .fontWeight(.semibold)
+                }
+                .font(.caption)
+            }
         }
     }
 
@@ -186,14 +291,41 @@ struct ReleaseFlowView: View {
     private var stepsPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("4. 执行步骤").font(.headline)
+                Text(coordinator.canRetry ? "4. 执行步骤(上次失败)" : "4. 执行步骤").font(.headline)
                 Spacer()
-                Button(showVersionFields ? "发布" : "发布(仅 bump build)") {
-                    runRelease()
+                if coordinator.isRunning {
+                    // Cancel lives in the header next to 后台运行.
+                    EmptyView()
+                } else if coordinator.canRetry {
+                    Button("重新开始") { runRelease() }
+                        .buttonStyle(.bordered)
+                        .disabled(preflightRunning || hasBlockingPreflight || !versionInputValid)
+                        .help(publishBlockedReason ?? "从头重新执行所有步骤")
+                    Button {
+                        Task { await coordinator.retry() }
+                    } label: {
+                        Label("从失败步骤重试", systemImage: "arrow.clockwise.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(steps.isEmpty)
+                    .help("跳过已成功的步骤,从失败处继续")
+                } else {
+                    Button(showVersionFields ? "发布" : "发布(仅 bump build)") {
+                        runRelease()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(steps.isEmpty || preflightRunning ||
+                              hasBlockingPreflight || !versionInputValid)
+                    .help(publishBlockedReason ?? "开始发布")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(coordinator.isRunning || steps.isEmpty || preflightRunning ||
-                          hasBlockingPreflight || !versionInputValid)
+            }
+
+            // Why is 发布 greyed out? A disabled primary button with no reason
+            // reads as broken — state the blocker next to it.
+            if !coordinator.isRunning, let reason = publishBlockedReason {
+                Label(reason, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
 
             ForEach(steps, id: \.rawValue) { step in
@@ -207,31 +339,95 @@ struct ReleaseFlowView: View {
                         Text(msg).font(.caption).foregroundStyle(.red)
                     }
                     Spacer()
+                    if let seconds = coordinator.stepDurations[step],
+                       state != .idle, state != .running {
+                        Text(ReleaseFormatting.duration(seconds))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.vertical, 6)
                 .padding(.horizontal, 10)
                 .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             }
+
+            if coordinator.lastOutcome == .success && !coordinator.isRunning {
+                successBanner
+            }
         }
+    }
+
+    /// Post-success quick actions: the two things a user does right after a
+    /// ship — check the record, or get back to work.
+    private var successBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("发布完成").font(.headline)
+                if let planned = lastShippedLabel {
+                    Text(planned).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button("查看发布历史") {
+                navigation.selection = .history
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+            Button("完成") { dismiss() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(12)
+        .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var lastShippedLabel: String? {
+        guard let elapsed = coordinator.runTotalElapsed else { return nil }
+        let targetTitle = coordinator.activeTarget?.title ?? target.title
+        return "\(targetTitle) · 用时 \(ReleaseFormatting.duration(elapsed))"
     }
 
     // MARK: - Actions
 
     private func runRelease() {
-        guard !hasBlockingPreflight, versionInputValid else { return }
-        // Build the target version pair from the fields (if marketing given).
-        var version: VersionPair? = nil
-        let mkt = marketingVersion.trimmingCharacters(in: .whitespaces)
-        let bld = buildNumber.trimmingCharacters(in: .whitespaces)
-        if !mkt.isEmpty || !bld.isEmpty {
-            version = VersionPair(
-                marketing: mkt.isEmpty ? (VersionManager.read(app)?.marketing ?? "") : mkt,
-                build: bld.isEmpty ? (VersionManager.read(app)?.build ?? "1") : bld
-            )
-        }
+        guard !coordinator.isRunning, !hasBlockingPreflight, versionInputValid else { return }
+        let onDisk = VersionManager.read(app)
+        currentVersion = onDisk
+        let version = ReleaseFormatting.resolvedVersion(
+            current: onDisk, marketing: marketingVersion, build: buildNumber)
         Task {
             await coordinator.run(target: target, version: version)
+            // The bump (or explicit write) changed what's on disk — refresh
+            // the preview anchor so a follow-up run previews correctly.
+            currentVersion = VersionManager.read(app)
         }
+    }
+
+    /// Version this run would ship with the current field state — drives the
+    /// "当前 → 将发布" preview under the target picker.
+    private var plannedVersion: VersionPair? {
+        ReleaseFormatting.previewVersion(
+            current: currentVersion,
+            marketing: showVersionFields ? marketingVersion : "",
+            build: showVersionFields ? buildNumber : "")
+    }
+
+    /// Why the primary publish action is unavailable, in one sentence.
+    /// nil when it isn't blocked (or the wizard is mid-run).
+    private var publishBlockedReason: String? {
+        guard !coordinator.isRunning else { return nil }
+        if !versionInputValid {
+            return "版本号格式有误:Marketing 需为数字版本号,Build 需为非负整数"
+        }
+        if preflightRunning { return "预检进行中…" }
+        if steps.isEmpty { return "当前发布引擎没有可用的发布步骤" }
+        if preflightChecks.isEmpty { return "等待预检结果…" }
+        let failed = preflightChecks.filter { $0.status == .failed }
+        if !failed.isEmpty {
+            return "预检未通过(\(failed.count) 项失败):\(failed.map(\.title).joined(separator: "、")) — 修复后点「重新检查」"
+        }
+        return nil
     }
 
     private var hasBlockingPreflight: Bool {

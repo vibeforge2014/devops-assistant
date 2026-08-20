@@ -62,42 +62,50 @@ final class NotaryService {
     }
 
     /// Build the notarytool auth env from an ASC API key stored in the keychain.
-    /// The .p8 is written to a 0600 temp file inside a private subdirectory and
-    /// removed once the notarization run completes, so the private key is never
-    /// left on disk in world-readable form.
+    /// The .p8 lands in a 0700 private directory as a 0600 file — created with
+    /// those permissions from the start, so there is never a world-readable
+    /// window — and is removed once the notarization run completes.
     private func notaryEnv() -> [String: String] {
         var env = CredentialEnv.build()
         if let keyID = KeychainStore.get(.ascAPIKeyID),
            let content = KeychainStore.get(.ascAPIKeyContent),
            let issuer = KeychainStore.get(.ascIssuerID) {
             let dir = NSTemporaryDirectory() + "vibeforge-notary/"
-            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(
+                atPath: dir, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
             let tmp = dir + "AuthKey_\(keyID).p8"
-            do {
-                try content.write(toFile: tmp, atomically: true, encoding: .utf8)
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp)
+            // Drop any stale copy left by a crashed run, then create the
+            // fresh file 0600 directly (write-then-chmod leaks a window).
+            try? FileManager.default.removeItem(atPath: tmp)
+            if FileManager.default.createFile(
+                atPath: tmp, contents: Data(content.utf8),
+                attributes: [.posixPermissions: 0o600]) {
                 env["NOTARYTOOL_KEY"] = tmp
                 env["NOTARYTOOL_KEY_ID"] = keyID
                 env["NOTARYTOOL_ISSUER"] = issuer
-                // Clean up after this run completes (best-effort).
-                Task { @MainActor in
-                    self.pendingCleanup = tmp
-                }
-            } catch {
+                // Registered synchronously: we're already on the main actor,
+                // and scheduling a Task would race distribute()'s defer on
+                // fast failures (leaking the key file).
+                pendingCleanups.append(tmp)
+            } else {
                 #if DEBUG
-                print("[NotaryService] failed to write ASC key for notarize: \(error)")
+                print("[NotaryService] failed to write ASC key for notarize")
                 #endif
             }
         }
         return env
     }
 
-    /// Called by the release flow after distributed(); removes the temp .p8.
+    /// Called by the release flow after distributed(); removes the temp .p8s.
     func cleanupTempKey() {
-        guard let path = pendingCleanup else { return }
-        try? FileManager.default.removeItem(atPath: path)
-        pendingCleanup = nil
+        for path in pendingCleanups {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        pendingCleanups.removeAll()
     }
 
-    private var pendingCleanup: String?
+    /// Paths of key files awaiting cleanup — a list, so overlapping notarize
+    /// runs can't drop each other's entries.
+    private var pendingCleanups: [String] = []
 }

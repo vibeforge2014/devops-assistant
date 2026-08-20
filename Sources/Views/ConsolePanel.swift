@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A live terminal-style console that mirrors the ShellRunner's output stream.
 /// Designed to be embedded at the bottom of any operation view. Renders meta
@@ -10,6 +11,14 @@ struct ConsolePanel: View {
     /// concurrent operations in different views never cross-talk (M1).
     @ObservedObject var runner: ShellRunner
     @State private var didCopy = false
+    @State private var didExport = false
+
+    private static let exportStampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,6 +42,16 @@ struct ConsolePanel: View {
                 .buttonStyle(.borderless)
                 .disabled(runner.lines.isEmpty)
                 .help("复制全部日志")
+
+                Button {
+                    exportLogs()
+                } label: {
+                    Label(didExport ? "已导出" : "导出",
+                          systemImage: didExport ? "checkmark" : "square.and.arrow.up")
+                }
+                .buttonStyle(.borderless)
+                .disabled(runner.lines.isEmpty)
+                .help("导出全部日志到文件")
 
                 if !runner.isRunning {
                     Button("清空") { runner.clear() }
@@ -102,6 +121,28 @@ struct ConsolePanel: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
             didCopy = false
+        }
+    }
+
+    private func exportLogs() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue =
+            "console-\(Self.exportStampFormatter.string(from: Date())).log"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try plainLog.write(to: url, atomically: true, encoding: .utf8)
+                Task { @MainActor in
+                    didExport = true
+                    try? await Task.sleep(for: .seconds(1.5))
+                    didExport = false
+                }
+            } catch {
+                Task { @MainActor in
+                    runner.log("✗ 导出日志失败: \(error.localizedDescription)")
+                }
+            }
         }
     }
 }

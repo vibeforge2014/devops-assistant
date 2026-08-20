@@ -12,6 +12,7 @@ struct ProjectDetail: View {
     @EnvironmentObject private var registry: ConsoleRegistry
     @EnvironmentObject var catalog: ProjectCatalog
     @EnvironmentObject private var historyStore: HistoryStore
+    @EnvironmentObject private var releaseCenter: ReleaseCenter
     let app: AppProject
 
     private var runner: ShellRunner { registry.runnerForApp(app.id) }
@@ -20,6 +21,10 @@ struct ProjectDetail: View {
     @State private var showVersionEditor = false
     @State private var showReleaseFlow = false
     @State private var working = false
+
+    /// A one-click release is executing for this app (in the background —
+    /// its wizard sheet may well be dismissed).
+    private var releaseRunning: Bool { registry.isReleaseRunning(app.id) }
 
     private var buildService: BuildService { BuildService(runner: runner) }
     private var fastlane: FastlaneRunner { FastlaneRunner(runner: runner) }
@@ -31,26 +36,68 @@ struct ProjectDetail: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
 
+                    if releaseRunning {
+                        releaseRunningBanner
+                    }
+
+                    // Manual actions and a backgrounded release share build
+                    // directories and signing state — never both at once for
+                    // the same app. A missing project path likewise turns the
+                    // action cards into guaranteed failures (clone banner
+                    // handles recovery). The banner, toolbar and console stay
+                    // interactive so the release can still be watched.
                     gitSection
+                        .disabled(working || runner.isRunning || releaseRunning)
+
+                    // Read-only App Store presence (prices + IAP list); only
+                    // meaningful for client platforms the ASC/iTunes side knows.
+                    if app.platform == .ios || app.platform == .tvos {
+                        StoreInfoSection(app: app)
+                    }
 
                     actionGrid
+                        .disabled(working || runner.isRunning || releaseRunning || !app.existsOnDisk)
+                        .opacity(app.existsOnDisk ? 1 : 0.5)
                 }
                 .padding(24)
             }
 
             Divider()
-            ConsolePanel(runner: runner)
+            // While a release runs in the background, the embedded console
+            // mirrors the release runner — otherwise the banner says "发布进行中"
+            // above a console showing stale output from the last manual action.
+            if releaseRunning {
+                HStack {
+                    Label("发布日志", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.blue)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+            ConsolePanel(runner: releaseRunning ? registry.runnerForRelease(app.id) : runner)
                 .frame(height: 220)
         }
         .navigationTitle(app.name)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("一键发布") { showReleaseFlow = true }
-                    .disabled(working || runner.isRunning)
+                // While a release runs, the toolbar becomes the way back into
+                // its (possibly dismissed) wizard sheet.
+                if releaseRunning {
+                    Button {
+                        showReleaseFlow = true
+                    } label: {
+                        Label("查看发布进度", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                } else {
+                    Button("一键发布") { showReleaseFlow = true }
+                        .disabled(working || runner.isRunning)
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("编辑版本号") { showVersionEditor = true }
-                    .disabled(working || runner.isRunning)
+                    .disabled(working || runner.isRunning || releaseRunning)
             }
         }
         .sheet(isPresented: $showVersionEditor) {
@@ -59,10 +106,35 @@ struct ProjectDetail: View {
             }
         }
         .sheet(isPresented: $showReleaseFlow) {
-            ReleaseFlowView(app: app, catalog: catalog, historyStore: historyStore)
+            ReleaseFlowView(app: app, center: releaseCenter,
+                            catalog: catalog, historyStore: historyStore)
         }
         .onAppear { reloadVersion() }
-        .disabled(working || runner.isRunning)
+        .onChange(of: releaseRunning) { _, running in
+            // A backgrounded release that just finished bumped the version on
+            // disk — refresh the header instead of showing a stale number.
+            if !running { reloadVersion() }
+        }
+    }
+
+    // MARK: - Release banner
+
+    private var releaseRunningBanner: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("发布进行中").font(.headline)
+                Text("流程在后台运行,完成后会收到系统通知")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("查看进度") { showReleaseFlow = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Header

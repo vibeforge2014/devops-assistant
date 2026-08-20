@@ -223,7 +223,12 @@ private struct AppProjectEditor: View {
                     TextField("Scheme", text: $draft.scheme)
                     TextField("Bundle ID", text: $draft.bundleID)
                     Picker("版本来源", selection: $draft.versionSource) {
-                        ForEach(VersionSource.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        // xcconfig reads/writes aren't implemented in
+                        // VersionManager yet — offering it here would let a
+                        // project pick a source that silently fails.
+                        ForEach(VersionSource.allCases.filter { $0 != .xcconfig }, id: \.self) {
+                            Text($0.rawValue).tag($0)
+                        }
                     }
                 }
                 Section {
@@ -339,8 +344,16 @@ private struct SiteProjectEditor: View {
                     HStack { TextField("本地目录", text: $draft.path); Button("选择…") { showFolderPicker = true } }
                     TextField("GitHub 仓库 URL", text: $draft.repositoryURL)
                         .font(.system(.body, design: .monospaced))
+                    TextField("线上地址(可选,默认由仓库推导)", text: $draft.url)
+                        .font(.system(.body, design: .monospaced))
                     Picker("部署方式", selection: $draft.deploy) {
-                        ForEach(DeployMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        ForEach(DeployMethod.allCases, id: \.self) {
+                            Text($0.displayName).tag($0)
+                        }
+                    }
+                    if draft.deploy == .cloudflarePages {
+                        TextField("Cloudflare Pages 项目名(默认同项目 ID)", text: $draft.cloudflareProject)
+                        TextField("上传目录(默认仓库根目录,如 docs)", text: $draft.deployDir)
                     }
                 }
             }.formStyle(.grouped)
@@ -368,7 +381,7 @@ private struct SiteProjectEditor: View {
         let candidate = draft.project
         do { try catalog.validateSite(candidate) }
         catch { errorMessage = error.localizedDescription; return }
-        guard !registry.isSiteRunning(candidate.id) else { errorMessage = "项目正在执行任务，暂时不能修改"; return }
+        guard !registry.isSiteBusy(candidate.id) else { errorMessage = "项目正在执行任务，暂时不能修改"; return }
         guard let original, original.repositoryURL != candidate.repositoryURL else { persist(candidate); return }
         saving = true
         Task {
@@ -432,16 +445,23 @@ private struct AppDraft {
 }
 
 private struct SiteDraft {
-    var id = "", name = "", path = "", repositoryURL = ""
+    var id = "", name = "", path = "", repositoryURL = "", url = ""
+    var cloudflareProject = "", deployDir = ""
     var deploy: DeployMethod = .gitPushMain
     init(_ site: SiteProject?) {
         guard let site else { return }
         id = site.id; name = site.name; path = site.path
         repositoryURL = site.repositoryURL; deploy = site.deploy
+        url = site.url ?? ""
+        cloudflareProject = site.cloudflareProject ?? ""
+        deployDir = site.deployDir ?? ""
     }
     var project: SiteProject {
         SiteProject(id: id.trimmed, name: name.trimmed, path: path.trimmed,
-                    repositoryURL: repositoryURL.trimmed, deploy: deploy)
+                    repositoryURL: repositoryURL.trimmed, deploy: deploy,
+                    url: url.nilIfEmpty,
+                    cloudflareProject: cloudflareProject.nilIfEmpty,
+                    deployDir: deployDir.nilIfEmpty)
     }
 }
 

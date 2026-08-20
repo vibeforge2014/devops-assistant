@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// 批量管理发布页站点视图。可多选站点后统一「提交并推送」,触发各站点的
-/// GitHub Pages 自动部署;过程输出实时显示在底部控制台。
+/// 批量管理发布页站点视图。可多选站点后统一发布(拉取 → 提交 → 部署的完整
+/// 流水线,逐站执行并记录发布历史),过程输出实时显示在底部控制台。
 struct PagesManagerView: View {
     /// The runner is owned by `ConsoleRegistry` (injected), not as a
     /// `@StateObject` here, so it survives view rebuilds.
     @EnvironmentObject private var registry: ConsoleRegistry
     @EnvironmentObject var catalog: ProjectCatalog
+    @EnvironmentObject private var releaseCenter: ReleaseCenter
 
     @State private var selected: Set<String> = []
     @State private var working = false
@@ -14,7 +15,6 @@ struct PagesManagerView: View {
     @State private var showCommitDialog = false
 
     private var runner: ShellRunner { registry.runnerForPages() }
-    private var deployer: PagesDeployer { PagesDeployer(runner: runner) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,7 +45,7 @@ struct PagesManagerView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "globe.badge.chevron.backward")
                 .foregroundStyle(.tint)
-            Text("选中站点后批量提交并推送,触发 GitHub Pages 自动部署。")
+            Text("选中站点后批量发布:每个站点依次执行「拉取 → 提交 → 部署」,结果记入发布历史。")
                 .font(.callout)
             Spacer()
         }
@@ -102,6 +102,9 @@ struct PagesManagerView: View {
 
     private func siteRow(_ site: SiteProject) -> some View {
         let isSelected = selected.contains(site.id)
+        // A per-site publish running in the site's own detail view would race
+        // this batch on the same clone.
+        let siteBusy = registry.isSiteBusy(site.id)
         return Button {
             toggle(site.id)
         } label: {
@@ -117,6 +120,14 @@ struct PagesManagerView: View {
                         .textSelection(.enabled)
                 }
                 Spacer()
+                if siteBusy {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text("该站点正在执行操作")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text(deployDescription(site.deploy))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -127,13 +138,11 @@ struct PagesManagerView: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
         }
         .buttonStyle(.plain)
+        .disabled(siteBusy)
     }
 
     private func deployDescription(_ method: DeployMethod) -> String {
-        switch method {
-        case .gitPushMain: "push main 自动部署"
-        case .ghPages: "gh-pages npm 部署"
-        }
+        method.displayName
     }
 
     // MARK: - Commit dialog
@@ -186,13 +195,13 @@ struct PagesManagerView: View {
 
     private func deployAll(message: String) async {
         working = true; defer { working = false }
-        runner.clear()
         let targets = catalog.availableSites.filter { selected.contains($0.id) }
-        for site in targets {
-            let result = await deployer.deploy(site, message: message)
-            if !result.succeeded {
-                runner.log("✗ \(site.name) 部署失败,继续处理其余站点")
-            }
+        guard !targets.isEmpty else {
+            runner.log("✗ 没有可部署的站点")
+            return
         }
+        // Busy sites are skipped (not failed) inside the batch runner — it
+        // streams everything, including the skip notices, into this console.
+        await releaseCenter.runBatchPublish(sites: targets, message: message)
     }
 }

@@ -44,6 +44,10 @@ Gotchas already solved:
 1. GitHub Release: `gh release upload <tag> build/release/*.dmg --clobber`
    (download URL is hardcoded to `v<VERSION>` in `docs/index.html`).
 2. Cloudflare Pages: `./scripts/deploy-pages.sh` (reads token from keychain, non-interactive safe).
+3. In-app update: the app self-updates from GitHub `releases/latest` (unauthenticated
+   public API), picking the `*.dmg` asset — download → `spctl --assess` (must read
+   `source=Notarized Developer ID`) → swap the bundle in (~/)/Applications → relaunch.
+   Every release must attach a DMG asset; the release notes body shows in the update sheet.
 
 ## Repo notes
 - Dual remote: `origin` → GitHub (`git@github.com:vibeforge2014/devops-assistant.git`, SSH);

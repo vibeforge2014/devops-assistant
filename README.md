@@ -15,10 +15,15 @@ VibeForge 旗下 8 个 Apple 客户端应用（包含 DevOps Assistant 自身）
 | **构建打包** | xcodegen + xcodebuild archive,内置导出 IPA / 签名打包 DMG |
 | **签名与公证** | iOS:match / cert+sigh;macOS:Developer ID 签名 + notarytool 公证 |
 | **TestFlight / App Store** | 全本地执行:项目上传脚本 → 本地 Fastlane → 内置 IPA + altool |
-| **一键发布** | 向导式串联:设版本 → 构建 → 签名 → (公证) → 上传 → 联动更新 Portal |
+| **一键发布** | 向导式串联:设版本 → 构建 → 签名 → (公证) → 上传 → 联动更新 Portal;可后台运行,完成后系统通知,失败可从失败步骤重试 |
+| **站点一键发布** | 站点侧同款发布向导:拉取 → 提交 → 部署(push main / gh-pages / Cloudflare wrangler 直传)→(可选)等待 GitHub Actions 部署生效;工作区干净时自动判定"无需发布",支持回滚上一版,结果计入发布历史 |
 | **发布预检** | 发布前检查路径/版本、Fastlane lane、Bundler、凭据、Git 状态与 Portal 映射 |
 | **凭证有效性** | 只读验证 ASC Apple 认证、本机分发证书、Match 仓库与解密密码,失败时引导补录 |
-| **发布页更新** | 批量 git pull → 编辑 → push,触发 Pages 自动部署 |
+| **发布页更新** | 批量发布:逐站执行完整「拉取 → 提交 → 部署」流水线并记录历史,站点页实时展示分支/未提交/领先落后状态 |
+| **商店信息** | 展示各应用 App Store 店面售价(中国区/美区)、版本评分与内购/订阅价格及审核状态(只读) |
+| **发布历史** | 记录每次发布(App 与站点部署/回滚)的版本/目标/结果,按项目筛选追溯,关联运行日志(本地存储) |
+| **动态项目管理** | 在应用内新增、编辑、删除应用与站点，支持切换本地目录和完整 GitHub URL |
+| **在线更新** | 应用自更新:启动时静默检查 GitHub 最新 Release,发现新版本展示说明并一键"下载 → spctl 公证校验 → 自动替换安装 → 重启";非 /Applications 位置自动回退为打开 DMG 手动安装 |
 
 ## 官网部署
 
@@ -27,8 +32,6 @@ DevOps Assistant 发布页使用 Cloudflare Pages 托管，静态输出目录为
 ```bash
 npx wrangler pages deploy docs --project-name devops-assistant --branch main
 ```
-| **发布历史** | 记录每次发布的版本/目标/结果,按应用筛选追溯(本地存储) |
-| **动态项目管理** | 在应用内新增、编辑、删除应用与站点，支持切换本地目录和完整 GitHub URL |
 
 ## 凭据管理
 
@@ -38,6 +41,8 @@ npx wrangler pages deploy docs --project-name devops-assistant --branch main
 - Apple Team ID
 
 首次使用前在 **设置 → 凭据** 中填入并点击“验证全部”。支持直接导入 `AuthKey_*.p8`;临时密钥文件权限为 `0600`,进程结束后自动删除。
+
+换 Mac 或重装时,在 **设置 → 凭据 → 迁移** 导出口令加密的迁移文件(AES-256-GCM + PBKDF2,零依赖系统加密),在新机器的首启向导或设置页导入即可恢复全部凭据。
 
 ## 构建
 

@@ -75,7 +75,8 @@ final class ProjectCatalog: ObservableObject {
                 relocateIfNeeded()
                 return
             } catch {
-                errorMessage = "用户项目配置无法读取，已临时使用内置清单：\(error.localizedDescription)"
+                quarantineCorruptFile()
+                errorMessage = "用户项目配置无法读取，已将原文件隔离为 .corrupt 备份并使用内置清单：\(error.localizedDescription)"
                 loadBundledWithoutOverwriting()
                 relocateIfNeeded()
                 return
@@ -95,6 +96,18 @@ final class ProjectCatalog: ObservableObject {
             errorMessage = "内置项目清单无法读取：\(error.localizedDescription)"
         }
         relocateIfNeeded()
+    }
+
+    /// Rename an undecodable projects.json to `projects.json.corrupt-<stamp>`.
+    /// Without this, the bundled fallback followed by a rescan persist would
+    /// overwrite the user's file — destroying data that might be hand-recoverable.
+    private func quarantineCorruptFile() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let backup = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("projects.json.corrupt-\(formatter.string(from: Date()))")
+        try? fileManager.moveItem(at: fileURL, to: backup)
     }
 
     /// Re-evaluates every project path and repoints any that are empty or have
