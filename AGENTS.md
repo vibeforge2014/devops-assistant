@@ -14,9 +14,9 @@ Native macOS app (SwiftUI) — a local release console for indie Apple developer
 | Purpose | Where | How to read |
 |---|---|---|
 | Apple notarization | keychain profile `devops-assistant-notary` | `xcrun notarytool submit X --keychain-profile devops-assistant-notary` |
-| ASC API key (.p8) | `~/.appstore/AuthKey_496SRK4K68.p8` | key id `496SRK4K68`, issuer `a307ff7b-774c-4ef6-98c4-8031876fa556` |
+| ASC API key (.p8) | `~/.appstoreconnect/private_keys/AuthKey_496SRK4K68.p8` | key id `496SRK4K68`, issuer `a307ff7b-774c-4ef6-98c4-8031876fa556` (used to rebuild the `devops-assistant-notary` profile on 2026-08-20) |
 | Developer ID signing | login keychain identity `Developer ID Application: Zhen Qian (LPW4Z3BN69)` | `security find-identity -p codesigning \| grep Developer` |
-| Cloudflare API token | keychain `devops-assistant-cloudflare` | `security find-generic-password -s devops-assistant-cloudflare -w` |
+| Cloudflare Pages | wrangler OAuth at `~/.wrangler/config/default.toml` (keychain token `devops-assistant-cloudflare` absent on this Mac — deploy falls back to OAuth) | `./scripts/deploy-pages.sh` |
 | Apple app-specific pw | keychain `devops-assistant-apple-app-password` | `security find-generic-password -s devops-assistant-apple-app-password -w` |
 | .p12 export password | keychain `devops-assistant-p12-password` | `security find-generic-password -s devops-assistant-p12-password -w` |
 | GitLab (Synology) token | keychain `devops-assistant-gitlab-token` + git osxkeychain helper | `security find-generic-password -s devops-assistant-gitlab-token -w` (also stored for host `zqian24.synology.me:8010`) |

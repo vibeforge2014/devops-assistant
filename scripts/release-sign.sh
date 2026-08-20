@@ -43,7 +43,10 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" \
 APP_PATH="$EXPORT_DIR/$APP_NAME.app"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Contents/Info.plist")
 DMG="build/release/DevOps-Assistant-$VERSION.dmg"
-codesign --verify --strict --verbose=2 "$APP_PATH" 2>&1 | head -1
+# No `| head -1` here: head closes the pipe after one line and codesign
+# dies of SIGPIPE, which under `pipefail` aborts the whole script (exit 141).
+# verbose=2 output is only a few lines — print it all.
+codesign --verify --strict --verbose=2 "$APP_PATH"
 
 echo "[4/8] Building DMG..."
 STAGE="build/dmg-stage"; rm -rf "$STAGE" "$DMG"; mkdir -p "$STAGE"
